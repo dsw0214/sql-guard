@@ -1,0 +1,55 @@
+{
+  "name": "electron",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "gen-icon-mac": "bash scripts/gen-mac-icns.sh",
+    "gen-icon-all": "npm run gen-icon && npm run gen-icon-mac",
+    "build-win": "electron-builder --win --x64",
+    "build-win-arm64": "electron-builder --win --arm64",
+    "build-win-all": "electron-builder --win --x64 --arm64",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.oneworld.sql-guard",
+    "productName": "sql-guard",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "src/**",
+      "styles/**",
+      "assets/**",
+      "node_modules/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icon.png"
+    }
+  },
+  "keywords": [],
+  "author": "shiwei",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1"
+  }
+}

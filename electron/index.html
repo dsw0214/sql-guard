@@ -1,0 +1,146 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<title>SQLGuard Demo</title>
+<link rel="stylesheet" href="./styles/app.css">
+</head>
+
+<body>
+
+<h1>SQLGuard AI Review Demo</h1>
+
+<textarea id="sql">
+SELECT * FROM users;
+</textarea>
+
+<div class="controls">
+    <label>
+        检测模式
+        <select id="mode">
+            <option value="hybrid">hybrid（规则+AI）</option>
+            <option value="rule">rule（仅规则）</option>
+            <option value="ai">ai（仅AI）</option>
+        </select>
+    </label>
+
+    <label>
+        SQL方言
+        <input id="dialect" value="generic" />
+    </label>
+</div>
+
+<br>
+
+<button id="reviewBtn">开始检测</button>
+
+<div class="upload-row">
+    <input id="sqlFile" type="file" accept=".sql,.txt,.zip" />
+    <button id="uploadReviewBtn">上传附件检测</button>
+</div>
+<div id="fileMeta" class="meta"></div>
+
+<div class="action-row">
+    <label class="meta">
+        <input id="highRiskOnly" type="checkbox" />
+        仅显示高风险（P0/P1）
+    </label>
+    <label>
+        导出模板
+        <select id="reportTemplate">
+            <option value="detailed">详细版</option>
+            <option value="simple">简版</option>
+        </select>
+    </label>
+    <label>
+        压缩包诊断视图
+        <select id="archiveDiagFilter">
+            <option value="all">全部</option>
+            <option value="duplicates">仅重复内容组</option>
+            <option value="failed">仅失败文件</option>
+            <option value="skipped">仅跳过文件</option>
+            <option value="none">隐藏诊断明细</option>
+        </select>
+    </label>
+    <label>
+        主题
+        <select id="themeMode">
+            <option value="default">默认科技蓝</option>
+            <option value="emerald">青绿矩阵</option>
+            <option value="sunset">霓虹玫红</option>
+            <option value="amber">琥珀警戒</option>
+            <option value="custom">自定义</option>
+        </select>
+    </label>
+    <label>
+        主题颜色
+        <input id="themeColor" type="color" value="#43e7ff" />
+    </label>
+    <label>
+        服务器地址
+        <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" spellcheck="false" />
+    </label>
+    <button id="exportJsonBtn" disabled>预览并导出 JSON</button>
+    <button id="exportMdBtn" disabled>预览并导出 Markdown</button>
+    <button id="exportCurrentFileBtn" disabled>导出当前展开文件子报告</button>
+    <button id="exportCurrentFileJsonBtn" disabled>导出当前展开文件子报告 JSON</button>
+    <button id="resetExportSettingsBtn">仅重置导出设置</button>
+    <button id="resetSettingsBtn">重置设置</button>
+</div>
+
+<div id="loading"><span class="spinner"></span>正在检测 SQL，请稍候...</div>
+
+<div id="result"></div>
+
+<div id="previewModal" class="modal-mask">
+    <div class="modal-panel">
+        <div class="modal-title">导出预览</div>
+        <div id="previewMeta" class="modal-subtitle"></div>
+        <div class="modal-toolbar">
+            <input id="previewSearch" type="text" placeholder="在预览中搜索关键字" />
+            <button id="previewPrevBtn" type="button">上一处</button>
+            <button id="previewNextBtn" type="button">下一处</button>
+            <label class="meta">跳转动画
+                <select id="previewScrollMode">
+                    <option value="smooth">平滑</option>
+                    <option value="instant">瞬时</option>
+                </select>
+            </label>
+            <span id="previewHitCount" class="hit-count"></span>
+        </div>
+        <div id="previewContent" class="modal-content"></div>
+        <div class="modal-actions">
+            <button id="previewCancelBtn" type="button">取消</button>
+            <button id="confirmDownloadBtn" type="button">确认下载</button>
+        </div>
+    </div>
+</div>
+
+<div id="confirmModal" class="modal-mask">
+    <div class="modal-panel modal-panel-confirm">
+        <div class="modal-title">请确认操作</div>
+        <div id="confirmMessage" class="confirm-message"></div>
+        <div class="modal-actions">
+            <button id="confirmCancelBtn" type="button">取消</button>
+            <button id="confirmOkBtn" type="button">确认</button>
+        </div>
+    </div>
+</div>
+
+<footer class="app-footer">
+    <div class="footer-meta">
+        <div id="appMeta" class="meta">桌面信息: 读取中...</div>
+        <div id="backendStatus" class="meta">后端状态: 检查中...</div>
+    </div>
+    <div class="footer-actions">
+        <button id="refreshBackendStatusBtn" type="button">刷新后端状态</button>
+        <a id="docLink" href="#" class="footer-link">打开后端 API 文档</a>
+    </div>
+</footer>
+
+<script type="module" src="./src/app.js"></script>
+
+</body>
+</html>
