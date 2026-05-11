@@ -42,10 +42,10 @@ jobs:
         run: npm install
 
       - name: Build Windows x64
-        run: npm run build-win
+        run: npm run build-win -- --config.extraMetadata.buildDate=${{ steps.meta.outputs.build_date }} --config.extraMetadata.buildRun=${{ steps.meta.outputs.run_number }}
 
       - name: Build Windows portable x64
-        run: npm run build-win-portable
+        run: npm run build-win-portable -- --config.extraMetadata.buildDate=${{ steps.meta.outputs.build_date }} --config.extraMetadata.buildRun=${{ steps.meta.outputs.run_number }}
 
       - name: Prepare artifacts
         shell: pwsh
@@ -87,14 +87,14 @@ jobs:
             Set-Content (Join-Path $portableDir 'SHA256SUMS.txt')
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: sql-guard-windows-installer-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.build_date }}-run${{ steps.meta.outputs.run_number }}
           path: electron/dist/artifacts/installer/*
           retention-days: 90
 
       - name: Upload portable artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: sql-guard-windows-portable-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.build_date }}-run${{ steps.meta.outputs.run_number }}
           path: electron/dist/artifacts/portable/*

@@ -1,4 +1,5 @@
 const { ipcMain, shell, app } = require("electron");
+const path = require("path");
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
@@ -17,10 +18,23 @@ function isSafeExternalUrl(rawUrl) {
 
 function registerIpcHandlers() {
   ipcMain.handle("app:getMeta", () => {
+    let buildDate = "";
+    let buildRun = "";
+
+    try {
+      const pkg = require(path.join(app.getAppPath(), "package.json"));
+      buildDate = typeof pkg.buildDate === "string" ? pkg.buildDate : "";
+      buildRun = typeof pkg.buildRun === "string" ? pkg.buildRun : "";
+    } catch {
+      // Ignore package metadata read errors and return base app info.
+    }
+
     return {
       appName: app.getName(),
       appVersion: app.getVersion(),
       platform: process.platform,
+      buildDate,
+      buildRun,
     };
   });
 

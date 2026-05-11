@@ -133,10 +133,23 @@ SELECT * FROM users;
     <div class="footer-meta">
         <div id="appMeta" class="meta">桌面信息: 读取中...</div>
         <div id="backendStatus" class="meta">后端状态: 检查中...</div>
+        <div id="developerMeta" class="meta">开发者信息: 读取中...</div>
+        <section class="about-card" aria-label="开发者信息">
+            <div class="about-title">开发者信息</div>
+            <div class="about-grid">
+                <span class="about-key">开发者</span><span id="aboutDeveloper" class="about-value">shiwei</span>
+                <span class="about-key">版本号</span><span id="aboutVersion" class="about-value">读取中...</span>
+                <span class="about-key">运行平台</span><span id="aboutPlatform" class="about-value">读取中...</span>
+                <span class="about-key">GitHub</span><span id="aboutRepo" class="about-value">github.com/dsw0214/sql-guard</span>
+                <span class="about-key">构建信息</span><span id="aboutBuildAt" class="about-value">读取中...</span>
+            </div>
+        </section>
     </div>
     <div class="footer-actions">
         <button id="refreshBackendStatusBtn" type="button">刷新后端状态</button>
+        <button id="copyGithubBtn" type="button">复制 GitHub 地址</button>
         <a id="docLink" href="#" class="footer-link">打开后端 API 文档</a>
+        <a id="githubLink" href="#" class="footer-link">打开 GitHub 仓库</a>
     </div>
 </footer>
 

@@ -514,7 +514,42 @@ button:disabled {
 .footer-meta {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 8px;
+}
+
+.about-card {
+    margin-top: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(var(--accent-rgb), 0.1), rgba(5, 17, 27, 0.32));
+    min-width: min(560px, 100%);
+}
+
+.about-title {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #d8f7ff;
+    margin-bottom: 8px;
+}
+
+.about-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    align-items: center;
+}
+
+.about-key {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.about-value {
+    color: var(--text-main);
+    font-size: 12px;
+    word-break: break-word;
 }
 
 .footer-actions {
@@ -525,6 +560,12 @@ button:disabled {
 }
 
 #refreshBackendStatusBtn {
+    margin-top: 0;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+#copyGithubBtn {
     margin-top: 0;
     padding: 6px 10px;
     font-size: 12px;
@@ -604,5 +645,18 @@ button:disabled {
     .controls,
     .upload-row {
         gap: 8px;
+    }
+
+    .about-card {
+        min-width: 100%;
+    }
+
+    .about-grid {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .about-key {
+        opacity: 0.9;
     }
 }
