@@ -1,7 +1,7 @@
 
-# SQLGuard Demo
+# SQLGuard 
 
-一个基于 Electron + Python + AI SQL Review 的本地 Demo。
+基于 Electron 与 Python 的 AI 式 SQL Review 工具
 
 ## 功能
 
@@ -120,7 +120,6 @@ export SQLGUARD_AI_HTTP_TIMEOUT="30"
 
 ```bash
 export SQLGUARD_AI_PROVIDER="ollama"
-export SQLGUARD_OLLAMA_BASE_URL="http://cn212001352.bilibili.local:11434"
 export SQLGUARD_OLLAMA_BASE_URL="http://127.0.0.1:11434"
 export SQLGUARD_OLLAMA_MODEL="qwen3.5:9b"
 export SQLGUARD_AI_TEMPERATURE="0"
