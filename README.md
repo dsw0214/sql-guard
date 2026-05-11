@@ -3,6 +3,10 @@
 
 基于 Electron 与 Python 的 AI 式 SQL Review 工具
 
+## GUI快照
+
+![SQLGuard 页面快照](docs/screenshots/ui-overview.png)
+
 ## 功能
 
 - SQL 输入与检测
