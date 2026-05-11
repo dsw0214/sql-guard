@@ -32,17 +32,24 @@ jobs:
       - name: Build Windows x64
         run: npm run build-win
 
+      - name: Build Windows portable x64
+        run: npm run build-win-portable
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
           name: windows-builds
-          path: electron/dist/sql-guard*.exe
+          path: |
+            electron/dist/sql-guard Setup *.exe
+            electron/dist/sql-guard *.exe
           retention-days: 90
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: electron/dist/sql-guard*.exe
+          files: |
+            electron/dist/sql-guard Setup *.exe
+            electron/dist/sql-guard *.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

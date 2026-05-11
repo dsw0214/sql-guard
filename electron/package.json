@@ -8,6 +8,7 @@
     "gen-icon-mac": "bash scripts/gen-mac-icns.sh",
     "gen-icon-all": "npm run gen-icon && npm run gen-icon-mac",
     "build-win": "electron-builder --win --x64",
+    "build-win-portable": "electron-builder --win portable --x64",
     "build-win-arm64": "electron-builder --win --arm64",
     "build-win-all": "electron-builder --win --x64 --arm64",
     "build-mac": "electron-builder --mac",
@@ -31,6 +32,12 @@
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "include": "build/installer.nsh",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": false
     },
     "mac": {
       "target": "dmg",
