@@ -46,9 +46,21 @@
 ### 1. 启动 Python 后端
 
 ```bash
-cd backend
+# Switch code directory
+cd sql-guard
+
+# Create a virtual environment
+python3 -m venv myenv
+
+# Start the virtual environment
+source myenv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
-python main.py
+
+# run 
+python backend/main.py
+
 ```
 
 默认启动：
@@ -82,6 +94,115 @@ cd electron
 npm install
 npm start
 ```
+
+---
+
+## Docker 环境部署
+
+下面只部署后端 API（FastAPI）。Electron 客户端可继续本地运行，并把服务器地址改为 Docker 所在主机地址。
+
+### 方案一：单命令快速启动（不写 Dockerfile）
+
+在项目根目录执行：
+
+```bash
+docker run --rm -it \
+	-p 8000:8000 \
+	-e SQLGUARD_HOST=0.0.0.0 \
+	-e SQLGUARD_PORT=8000 \
+	-e SQLGUARD_AI_PROVIDER=ollama \
+	-e SQLGUARD_OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+	-e SQLGUARD_OLLAMA_MODEL=qwen3.5:9b \
+	-e SQLGUARD_OLLAMA_HTTP_TIMEOUT=300 \
+	-v "$PWD/backend":/app \
+	-w /app \
+	python:3.13-slim \
+	sh -c "pip install -r requirements.txt && python main.py"
+```
+
+启动后可访问：
+
+- `http://127.0.0.1:8000/docs`
+
+说明：
+
+- 若你的 Ollama 不在本机，请把 `SQLGUARD_OLLAMA_BASE_URL` 改成实际地址。
+- Linux 主机如不支持 `host.docker.internal`，可改为宿主机网卡 IP。
+
+### 方案二：docker compose（推荐长期使用）
+
+1. 准备环境变量文件：
+
+```bash
+cp .env.example .env
+```
+
+2. 按需编辑 `.env`（例如修改 `SQLGUARD_OLLAMA_BASE_URL` 为你的模型服务地址）。
+
+3. 在项目根目录新建 `docker-compose.yml`（已提供可直接使用的版本）：
+
+```yaml
+services:
+	sqlguard-backend:
+		image: python:3.13-slim
+		container_name: sqlguard-backend
+		working_dir: /app
+		env_file:
+			- ./.env
+		volumes:
+			- ./backend:/app
+		command: sh -c "pip install -r requirements.txt && python main.py"
+		environment:
+			SQLGUARD_HOST: ${SQLGUARD_HOST:-0.0.0.0}
+			SQLGUARD_PORT: ${SQLGUARD_PORT:-8000}
+			SQLGUARD_AI_PROVIDER: ${SQLGUARD_AI_PROVIDER:-ollama}
+			SQLGUARD_OLLAMA_BASE_URL: ${SQLGUARD_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+			SQLGUARD_OLLAMA_MODEL: ${SQLGUARD_OLLAMA_MODEL:-qwen3.5:9b}
+			SQLGUARD_OLLAMA_HTTP_TIMEOUT: ${SQLGUARD_OLLAMA_HTTP_TIMEOUT:-300}
+		ports:
+			- "${SQLGUARD_PORT:-8000}:8000"
+		restart: unless-stopped
+```
+
+4. 启动服务：
+
+```bash
+docker compose up -d
+```
+
+5. 查看后端是否就绪（容器内置健康检查，间隔 15s，最多重试 3 次）：
+
+```bash
+docker compose ps
+# STATUS 列变为 healthy 表示后端就绪
+```
+
+6. 查看日志：
+
+```bash
+docker compose logs -f sqlguard-backend
+```
+
+7. 停止服务：
+
+```bash
+docker compose down
+```
+
+### 远程访问与安全建议
+
+- 局域网访问：`http://宿主机内网IP:8000/docs`
+- 公网访问：需放行防火墙并做端口映射（或使用反向代理）
+- 生产环境建议：
+	- 使用 Nginx/Caddy 反向代理并启用 HTTPS
+	- 限制 CORS 来源，不要长期保持 `*`
+	- 按需增加鉴权（如 API Token）
+
+### Electron 客户端如何连接 Docker 后端
+
+- 打开客户端设置中的“服务器地址”
+- 填写：`http://宿主机IP:8000`
+- 点击“刷新后端状态”确认连通
 
 ---
 
