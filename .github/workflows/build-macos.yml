@@ -21,7 +21,8 @@ jobs:
     defaults:
       run:
         working-directory: ./electron
-
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - name: Check out code
         uses: actions/checkout@v5
