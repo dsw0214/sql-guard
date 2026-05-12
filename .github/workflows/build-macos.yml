@@ -1,0 +1,84 @@
+name: Build macOS Application
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+
+    defaults:
+      run:
+        working-directory: ./electron
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Compute build metadata
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          BUILD_DATE=$(date +%Y%m%d)
+          RUN_NUMBER=${GITHUB_RUN_NUMBER}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "run_number=$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build macOS ${{ matrix.arch }} dmg
+        run: npx electron-builder --mac dmg --${{ matrix.arch }} --config.extraMetadata.buildDate=${{ steps.meta.outputs.build_date }} --config.extraMetadata.buildRun=${{ steps.meta.outputs.run_number }}
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_DIR="dist/artifacts/${{ matrix.arch }}"
+          mkdir -p "$ARTIFACT_DIR"
+
+          DMG_FILE=$(find dist -maxdepth 1 -name "*.dmg" | head -n 1)
+          if [[ -z "$DMG_FILE" ]]; then
+            echo "No dmg found in dist/"
+            exit 1
+          fi
+
+          BUILD_TAG="v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.build_date }}-run${{ steps.meta.outputs.run_number }}"
+          TARGET_NAME="sql-guard-macos-${{ matrix.arch }}-${BUILD_TAG}.dmg"
+          cp "$DMG_FILE" "$ARTIFACT_DIR/$TARGET_NAME"
+
+          shasum -a 256 "$ARTIFACT_DIR/$TARGET_NAME" > "$ARTIFACT_DIR/SHA256SUMS.txt"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: sql-guard-macos-${{ matrix.arch }}-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.build_date }}-run${{ steps.meta.outputs.run_number }}
+          path: electron/dist/artifacts/${{ matrix.arch }}/*
+          retention-days: 90
+
+      - name: Create Release assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            electron/dist/artifacts/${{ matrix.arch }}/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
