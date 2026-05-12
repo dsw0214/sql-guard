@@ -12,6 +12,8 @@
 
 > **发布权限**：两个工作流都配置了 `permissions: contents: write`，这是 `softprops/action-gh-release` 创建和更新 Release 资产所必需的。
 
+> **发布串行**：两个工作流共享同一个 `concurrency` 组，且 macOS 矩阵使用 `max-parallel: 1`，避免 Win/Mac 或不同架构同时改写同一个 Release。
+
 ---
 
 ## 二、运行环境
@@ -39,7 +41,7 @@
 7. `Prepare artifacts` → 重命名并移入 `dist/artifacts/installer/` 与 `dist/artifacts/portable/`，生成 `SHA256SUMS.txt`
 8. `Upload installer artifact` → 上传安装包到 Artifact（保留 90 天）
 9. `Upload portable artifact` → 上传便携版到 Artifact（保留 90 天）
-10. `Create Release`（仅 tag）→ 先删除同名旧 Release，再通过 `softprops/action-gh-release@v3` 上传 installer + portable 目录下所有文件到 GitHub Release，并启用 `overwrite_files: true`
+10. `Create Release`（仅 tag）→ 通过 `softprops/action-gh-release@v3` 上传 installer + portable 目录下所有文件到 GitHub Release；发布阶段由 `concurrency` 串行化，macOS 矩阵使用 `max-parallel: 1`
 
 ### macOS（arm64 / x64 并行）
 
@@ -50,7 +52,7 @@
 5. `Build macOS {arch} dmg` → 生成对应架构的 DMG 文件
 6. `Prepare artifacts` → 重命名至 `dist/artifacts/{arch}/`，生成 `SHA256SUMS.txt`
 7. `Upload macOS artifact` → 上传 DMG 到 Artifact（保留 90 天）
-8. `Create Release assets`（仅 tag）→ 先删除同名旧 Release，再通过 `softprops/action-gh-release@v3` 上传 DMG + checksum 到 GitHub Release，并启用 `overwrite_files: true`
+8. `Create Release assets`（仅 tag）→ 通过 `softprops/action-gh-release@v3` 上传 DMG + checksum 到 GitHub Release；发布阶段由 `concurrency` 串行化，macOS 矩阵使用 `max-parallel: 1`
 
 ---
 
@@ -92,10 +94,10 @@ sql-guard-{平台}-{架构}-v{version}-{yyyyMMdd}-run{N}.{ext}
 git tag v1.2.0 && git push origin v1.2.0
         │
         ├── 触发 build-windows.yml
-      │     └── 删除同名旧 Release 后重新创建 → 上传 installer + portable → GitHub Release v1.2.0
+      │     └── 按共享 `concurrency` 顺序执行 → 上传 installer + portable → GitHub Release v1.2.0
         │
-        └── 触发 build-macos.yml（arm64 + x64 并行）
-              └── 删除同名旧 Release 后重新创建 → 上传 arm64 dmg + x64 dmg → GitHub Release v1.2.0
+        └── 触发 build-macos.yml（arm64 + x64 顺序执行）
+              └── 按共享 `concurrency` 顺序执行 → 上传 arm64 dmg + x64 dmg → GitHub Release v1.2.0
 ```
 
 一次 tag push，Release 页面最终产出 5 个文件：安装包、便携版、arm64 DMG、x64 DMG、各自的 SHA256SUMS.txt。
