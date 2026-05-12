@@ -95,6 +95,32 @@ npm install
 npm start
 ```
 
+### macOS 安装后提示“已损坏”或无法打开
+
+如果通过 GitHub Actions 生成的 macOS 包安装后，首次打开出现 Gatekeeper 拦截，通常可以先清除隔离属性再打开：
+
+```bash
+# 1. 对下载的 dmg 清除隔离属性（把文件名替换成实际下载文件）
+xattr -dr com.apple.quarantine ~/Downloads/sql-guard-*.dmg
+
+# 2. 对安装后的 app 再清除一次隔离属性
+xattr -dr com.apple.quarantine /Applications/sql-guard.app
+
+# 3. 首次建议用右键 -> 打开，或直接再次双击
+open /Applications/sql-guard.app
+```
+
+如果仍然提示“已损坏”，可再执行一次：
+
+```bash
+spctl --add --label "sql-guard-local" /Applications/sql-guard.app
+```
+
+说明：
+
+- 这是 macOS 对未公证应用的典型拦截，不代表文件真的损坏。
+- 若要彻底消除这类弹窗，需要为 macOS 构建配置 Apple Developer 证书签名和 notarization。
+
 ---
 
 ## Docker 环境部署
