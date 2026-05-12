@@ -73,7 +73,7 @@ sql-guard-{平台}-{架构}-v{version}-{yyyyMMdd}-run{N}.{ext}
 | macOS arm64 | `sql-guard-macos-arm64-v1.2.0-20260512-run42.dmg` |
 | macOS x64 | `sql-guard-macos-x64-v1.2.0-20260512-run42.dmg` |
 
-每个产物目录下均附 `SHA256SUMS.txt` 用于完整性校验。
+每个产物目录下均附按目标命名的 `*-SHA256SUMS.txt`（如 `sql-guard-installer-v1.2.0-20260512-run42-SHA256SUMS.txt`）用于完整性校验。
 
 ---
 

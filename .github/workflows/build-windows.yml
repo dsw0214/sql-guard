@@ -83,17 +83,19 @@ jobs:
           $buildTag = "v$version-$buildDate-run$runNumber"
           $installerName = "sql-guard-installer-$buildTag.exe"
           $portableName = "sql-guard-portable-$buildTag.exe"
+          $installerChecksums = "sql-guard-installer-$buildTag-SHA256SUMS.txt"
+          $portableChecksums = "sql-guard-portable-$buildTag-SHA256SUMS.txt"
 
           Copy-Item $setup.FullName (Join-Path $installerDir $installerName) -Force
           Copy-Item $portable.FullName (Join-Path $portableDir $portableName) -Force
 
           Get-FileHash "$installerDir/*.exe" -Algorithm SHA256 |
             ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Split('\\')[-1] } |
-            Set-Content (Join-Path $installerDir 'SHA256SUMS.txt')
+            Set-Content (Join-Path $installerDir $installerChecksums)
 
           Get-FileHash "$portableDir/*.exe" -Algorithm SHA256 |
             ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Split('\\')[-1] } |
-            Set-Content (Join-Path $portableDir 'SHA256SUMS.txt')
+            Set-Content (Join-Path $portableDir $portableChecksums)
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v6

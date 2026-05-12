@@ -72,9 +72,10 @@ jobs:
 
           BUILD_TAG="v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.build_date }}-run${{ steps.meta.outputs.run_number }}"
           TARGET_NAME="sql-guard-macos-${{ matrix.arch }}-${BUILD_TAG}.dmg"
+          CHECKSUM_NAME="sql-guard-macos-${{ matrix.arch }}-${BUILD_TAG}-SHA256SUMS.txt"
           cp "$DMG_FILE" "$ARTIFACT_DIR/$TARGET_NAME"
 
-          shasum -a 256 "$ARTIFACT_DIR/$TARGET_NAME" > "$ARTIFACT_DIR/SHA256SUMS.txt"
+          shasum -a 256 "$ARTIFACT_DIR/$TARGET_NAME" > "$ARTIFACT_DIR/$CHECKSUM_NAME"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v6
