@@ -23,75 +23,6 @@ import {
 } from "./ui.js";
 
 const refs = getRefs();
-const DEVELOPER_NAME = "shiwei";
-const PROJECT_GITHUB_URL = "https://github.com/dsw0214/sql-guard";
-
-function getLaunchTimeText() {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-}
-
-function normalizeBuildDate(raw) {
-    const val = String(raw || "").trim();
-    if (!/^\d{8}$/.test(val)) {
-        return "";
-    }
-    return `${val.slice(0, 4)}-${val.slice(4, 6)}-${val.slice(6, 8)}`;
-}
-
-async function copyTextToClipboard(text) {
-    const val = String(text || "");
-    if (!val) {
-        throw new Error("复制内容为空");
-    }
-
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        await navigator.clipboard.writeText(val);
-        return;
-    }
-
-    const el = document.createElement("textarea");
-    el.value = val;
-    el.setAttribute("readonly", "true");
-    el.style.position = "fixed";
-    el.style.left = "-9999px";
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand("copy");
-    document.body.removeChild(el);
-}
-
-function applyDeveloperInfo(meta) {
-    const appVersion = meta && meta.appVersion ? meta.appVersion : "unknown";
-    const platform = meta && meta.platform ? meta.platform : "unknown";
-    const buildDate = meta ? normalizeBuildDate(meta.buildDate) : "";
-    const buildRun = meta && meta.buildRun ? String(meta.buildRun) : "";
-    const buildInfo = buildDate ? `${buildDate}${buildRun ? ` (run ${buildRun})` : ""}` : `本次启动 ${getLaunchTimeText()}`;
-
-    if (refs.developerMeta) {
-        refs.developerMeta.textContent = `开发者: ${DEVELOPER_NAME} | 版本: v${appVersion} | GitHub: github.com/dsw0214/sql-guard`;
-    }
-
-    if (refs.aboutDeveloper) {
-        refs.aboutDeveloper.textContent = DEVELOPER_NAME;
-    }
-    if (refs.aboutVersion) {
-        refs.aboutVersion.textContent = `v${appVersion}`;
-    }
-    if (refs.aboutPlatform) {
-        refs.aboutPlatform.textContent = platform;
-    }
-    if (refs.aboutRepo) {
-        refs.aboutRepo.textContent = "github.com/dsw0214/sql-guard";
-    }
-    if (refs.aboutBuildAt) {
-        refs.aboutBuildAt.textContent = buildInfo;
-    }
-    if (refs.githubLink) {
-        refs.githubLink.href = PROJECT_GITHUB_URL;
-    }
-}
 
 function applyThemeFromControls() {
     const mode = normalizeThemeMode(refs.themeMode.value);
@@ -425,8 +356,6 @@ function init() {
     bindEvents();
     refreshBackendStatus();
 
-    applyDeveloperInfo(null);
-
     loadDesktopMeta().then((meta) => {
         if (!refs.appMeta) {
             return;
@@ -434,7 +363,6 @@ function init() {
 
         if (!meta) {
             refs.appMeta.textContent = "桌面信息: unavailable";
-            applyDeveloperInfo(null);
             return;
         }
 
@@ -442,7 +370,6 @@ function init() {
         const appVersion = meta.appVersion || "unknown";
         const platform = meta.platform || "unknown";
         refs.appMeta.textContent = `桌面信息: ${appName} v${appVersion} (${platform})`;
-        applyDeveloperInfo(meta);
     });
 
     if (refs.docLink) {
@@ -455,28 +382,6 @@ function init() {
         });
     }
 
-    if (refs.copyGithubBtn) {
-        refs.copyGithubBtn.addEventListener("click", async () => {
-            try {
-                await copyTextToClipboard(PROJECT_GITHUB_URL);
-                if (refs.developerMeta) {
-                    refs.developerMeta.textContent = "开发者信息: GitHub 地址已复制";
-                }
-            } catch (err) {
-                renderError(refs, new Error(err && err.message ? err.message : "复制失败"));
-            }
-        });
-    }
-
-    if (refs.githubLink) {
-        refs.githubLink.addEventListener("click", async (e) => {
-            e.preventDefault();
-            const result = await openExternalSafely(PROJECT_GITHUB_URL);
-            if (!result.ok) {
-                renderError(refs, new Error(result.error || "无法打开外部链接"));
-            }
-        });
-    }
 }
 
 init();

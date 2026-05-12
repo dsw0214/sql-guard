@@ -1,8 +1,11 @@
 const { app, BrowserWindow } = require("electron");
 
 const { createMainWindow } = require("./window.js");
+const { registerApplicationMenu } = require("./menu.js");
 const { registerIpcHandlers } = require("./ipc.js");
 const { shouldDisableHardwareAcceleration } = require("./config.js");
+
+const APP_DISPLAY_NAME = "sql-guard";
 
 if (shouldDisableHardwareAcceleration()) {
   app.disableHardwareAcceleration();
@@ -10,12 +13,15 @@ if (shouldDisableHardwareAcceleration()) {
 
 function registerAppLifecycle() {
   app.whenReady().then(() => {
+    app.setName(APP_DISPLAY_NAME);
     registerIpcHandlers();
-    createMainWindow();
+    const mainWindow = createMainWindow();
+    registerApplicationMenu(mainWindow);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
+        const win = createMainWindow();
+        registerApplicationMenu(win);
       }
     });
   });

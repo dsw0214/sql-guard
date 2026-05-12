@@ -41,16 +41,8 @@ export function getRefs() {
         confirmOkBtn: document.getElementById("confirmOkBtn"),
         appMeta: document.getElementById("appMeta"),
         backendStatus: document.getElementById("backendStatus"),
-        developerMeta: document.getElementById("developerMeta"),
-        aboutDeveloper: document.getElementById("aboutDeveloper"),
-        aboutVersion: document.getElementById("aboutVersion"),
-        aboutPlatform: document.getElementById("aboutPlatform"),
-        aboutRepo: document.getElementById("aboutRepo"),
-        aboutBuildAt: document.getElementById("aboutBuildAt"),
         refreshBackendStatusBtn: document.getElementById("refreshBackendStatusBtn"),
-        copyGithubBtn: document.getElementById("copyGithubBtn"),
         docLink: document.getElementById("docLink"),
-        githubLink: document.getElementById("githubLink"),
     };
 }
 

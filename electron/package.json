@@ -1,7 +1,7 @@
 {
-  "name": "electron",
+  "name": "sql-guard",
   "version": "1.0.0",
-  "description": "",
+  "description": "基于 Electron 与 Python 的 AI 式 SQL Review 工具sql-guard",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
