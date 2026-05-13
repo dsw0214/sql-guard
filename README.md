@@ -221,14 +221,170 @@ docker compose down
 - 公网访问：需放行防火墙并做端口映射（或使用反向代理）
 - 生产环境建议：
 	- 使用 Nginx/Caddy 反向代理并启用 HTTPS
-	- 限制 CORS 来源，不要长期保持 `*`
-	- 按需增加鉴权（如 API Token）
+	- 限制 CORS 来源，使用环境变量 `ALLOWED_ORIGINS` 配置
+	- 按需增加鉴权（如 API Token、HTTP Basic Auth）
+
+---
+
+## 🔐 安全部署指南
+
+### 本地开发环境
+
+当前默认配置适合本地开发：
+
+```bash
+# CORS 允许列表（.env）
+ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:8000
+```
+
+安全检查清单：
+
+- ✅ `.env` 文件已添加至 `.gitignore`
+- ✅ 所有 API 密钥通过环境变量传递
+- ✅ 无硬编码的敏感信息
+
+### 生产环境部署
+
+#### 1. CORS 配置
+
+根据你的部署域名修改 `.env` 中的 `ALLOWED_ORIGINS`：
+
+```bash
+# 生产环境示例
+ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+
+# Docker 启动时传入
+docker run -e ALLOWED_ORIGINS="https://yourdomain.com" ...
+```
+
+#### 2. HTTPS 配置（使用 Nginx）
+
+创建 `nginx.conf`：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name api.yourdomain.com;
+    
+    # SSL 证书（使用 Let's Encrypt 或自签）
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # 请求大小限制
+    client_max_body_size 2m;
+    
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 超时配置
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 60s;
+    }
+}
+
+# HTTP 自动重定向到 HTTPS
+server {
+    listen 80;
+    server_name api.yourdomain.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+启动 Nginx：
+
+```bash
+docker run -d \
+  --name sqlguard-nginx \
+  -p 80:80 \
+  -p 443:443 \
+  -v /path/to/nginx.conf:/etc/nginx/conf.d/default.conf \
+  -v /path/to/cert.pem:/path/to/cert.pem \
+  -v /path/to/key.pem:/path/to/key.pem \
+  nginx:alpine
+```
+
+#### 3. IP 白名单（可选）
+
+如需限制访问 IP，修改 Nginx 配置：
+
+```nginx
+location / {
+    # 允许内网 IP
+    allow 10.0.0.0/8;
+    allow 172.16.0.0/12;
+    
+    # 允许特定公网 IP
+    allow 203.0.113.0/24;
+    
+    # 拒绝其他 IP
+    deny all;
+    
+    proxy_pass http://127.0.0.1:8000;
+    # ... 其他配置
+}
+```
+
+#### 4. 速率限制（可选）
+
+在 Nginx 中添加速率限制以防止滥用：
+
+```nginx
+# 定义限流区
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+
+location / {
+    limit_req zone=api_limit burst=20 nodelay;
+    proxy_pass http://127.0.0.1:8000;
+    # ... 其他配置
+}
+```
+
+#### 5. 依赖安全检查
+
+定期检查依赖漏洞：
+
+```bash
+# Python 依赖检查
+pip install pip-audit
+pip-audit
+
+# Node 依赖检查
+cd electron && npm audit
+```
+
+### 完整部署安全检查清单
+
+部署到生产环境前，请确保：
+
+- [ ] 修改 `.env` 中的 `ALLOWED_ORIGINS` 为你的实际域名
+- [ ] 启用了 HTTPS（获取有效的 SSL 证书）
+- [ ] 配置了反向代理（Nginx/Caddy）
+- [ ] 设置了强密码和 API 密钥（若使用 OpenAI）
+- [ ] 运行 `pip-audit` 和 `npm audit`，确保无高风险漏洞
+- [ ] 启用了日志记录和监控
+- [ ] 按需配置 IP 白名单或身份验证
+- [ ] 定期更新依赖包
 
 ### Electron 客户端如何连接 Docker 后端
 
-- 打开客户端设置中的“服务器地址”
-- 填写：`http://宿主机IP:8000`
-- 点击“刷新后端状态”确认连通
+- 打开客户端设置中的"服务器地址"
+- 填写：`http://宿主机IP:8000` 或 `https://yourdomain.com`（若使用 HTTPS）
+- 点击"刷新后端状态"确认连通
+
+### 报告安全漏洞
+
+如果发现项目中的安全漏洞：
+
+1. **不要**在公开 Issue 中讨论
+2. 通过私密方式报告（如 GitHub Security Advisory）
+3. 请给我们足够的时间来修复，再进行公开披露
 
 ---
 

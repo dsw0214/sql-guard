@@ -38,3 +38,4 @@ bin/
 lib/
 Opt.md
 .git
+.internal-docs/
