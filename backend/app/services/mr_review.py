@@ -34,12 +34,23 @@ async def review_merge_request(
     dialect: Optional[str],
     max_issues: int,
     max_sql: int,
+    policy: Optional[Dict] = None,
+    suppressions: Optional[List[Dict]] = None,
+    baseline_issues: Optional[List[Dict]] = None,
 ) -> Dict:
     sql_candidates = extract_sql_from_diff(diff, max_sql)
     reviews: List[Dict] = []
 
     for idx, sql in enumerate(sql_candidates, start=1):
-        result = await analyze_sql(sql, mode, dialect, max_issues)
+        result = await analyze_sql(
+            sql,
+            mode,
+            dialect,
+            max_issues,
+            policy=policy,
+            suppressions=suppressions,
+            baseline_issues=baseline_issues,
+        )
         reviews.append(
             {
                 "index": idx,

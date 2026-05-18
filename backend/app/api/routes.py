@@ -20,7 +20,15 @@ def health():
 
 @router.post("/review")
 async def review(req: SQLRequest):
-    return await analyze_sql(req.sql, req.mode, req.dialect, req.max_issues)
+    return await analyze_sql(
+        req.sql,
+        req.mode,
+        req.dialect,
+        req.max_issues,
+        policy=req.policy.model_dump() if req.policy else None,
+        suppressions=[item.model_dump() for item in req.suppressions],
+        baseline_issues=req.baseline_issues,
+    )
 
 
 @router.post("/review/upload")
@@ -54,6 +62,9 @@ async def gitlab_mr_review(req: MRReviewRequest):
         dialect=req.dialect,
         max_issues=req.max_issues,
         max_sql=req.max_sql,
+        policy=req.policy.model_dump() if req.policy else None,
+        suppressions=[item.model_dump() for item in req.suppressions],
+        baseline_issues=req.baseline_issues,
     )
 
 

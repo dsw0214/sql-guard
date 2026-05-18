@@ -315,17 +315,25 @@ async def _review_zip_sql_files(
             }
         )
 
+    unique_rule_count = len({i.get("rule_id") for i in merged_issues if i.get("rule_id")})
+
     return {
         "sql": "",
         "mode": mode,
         "issues": merged_issues,
-        "score": risk_score(merged_issues),
+        "score": risk_score(
+            merged_issues,
+            statement_count=total_statement_count,
+            table_count=total_table_count,
+            unique_rule_count=unique_rule_count,
+        ),
         "stats": {
             "statement_count": total_statement_count,
             "table_count": total_table_count,
             "rule_issue_count": total_rule_issue_count,
             "ai_issue_count": total_ai_issue_count,
             "total_issue_count": len(merged_issues),
+            "unique_rule_count": unique_rule_count,
             "file_count": len(file_results),
             "analyzed_file_count": len(file_results),
             "failed_file_count": len(failed_files),

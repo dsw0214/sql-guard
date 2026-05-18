@@ -1,7 +1,32 @@
 import os
+from typing import Dict, List
 
 
 class AppConfig:
+    @staticmethod
+    def _csv_env(name: str) -> List[str]:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return []
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @staticmethod
+    def _map_env(name: str) -> Dict[str, str]:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return {}
+        mapping: Dict[str, str] = {}
+        for part in raw.split(","):
+            if ":" not in part:
+                continue
+            key, value = part.split(":", 1)
+            key = key.strip()
+            value = value.strip().upper()
+            if not key or value not in {"P0", "P1", "P2", "P3"}:
+                continue
+            mapping[key] = value
+        return mapping
+
     @staticmethod
     def _float_env(name: str, default: float, min_value: float, max_value: float) -> float:
         raw = os.getenv(name, "").strip()
@@ -65,6 +90,20 @@ class AppConfig:
         return AppConfig._float_env("SQLGUARD_OLLAMA_HTTP_TIMEOUT", 300.0, 5.0, 1200.0)
 
     @staticmethod
+    def rule_policy_view() -> dict:
+        return {
+            "enabled_rules": AppConfig._csv_env("SQLGUARD_ENABLED_RULES"),
+            "disabled_rules": AppConfig._csv_env("SQLGUARD_DISABLED_RULES"),
+            "enabled_categories": AppConfig._csv_env("SQLGUARD_ENABLED_RULE_CATEGORIES"),
+            "severity_overrides": AppConfig._map_env("SQLGUARD_RULE_SEVERITY_OVERRIDES"),
+        }
+
+    @staticmethod
+    def default_suppressions() -> List[dict]:
+        rule_ids = AppConfig._csv_env("SQLGUARD_SUPPRESS_RULES")
+        return [{"rule_id": rid, "scope": "global"} for rid in rule_ids]
+
+    @staticmethod
     def config_view() -> dict:
         return {
             "provider": AppConfig.ai_provider(),
@@ -77,4 +116,6 @@ class AppConfig:
             "ai_seed": AppConfig.ai_seed(),
             "ai_http_timeout_seconds": AppConfig.ai_http_timeout_seconds(),
             "ollama_http_timeout_seconds": AppConfig.ollama_http_timeout_seconds(),
+            "rule_policy": AppConfig.rule_policy_view(),
+            "default_suppressions": AppConfig.default_suppressions(),
         }
