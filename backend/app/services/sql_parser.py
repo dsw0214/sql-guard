@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import sqlglot
 from sqlglot import exp
@@ -36,3 +36,35 @@ def split_sql_statements(sql: str, dialect: Optional[str]) -> List[str]:
         pass
 
     return [s.strip() for s in re.split(r";\s*", sql) if s.strip()]
+
+
+def split_sql_statements_with_meta(sql: str, dialect: Optional[str]) -> List[Dict]:
+    statements = split_sql_statements(sql, dialect)
+    if not statements:
+        return []
+
+    meta: List[Dict] = []
+    cursor = 0
+
+    for idx, stmt in enumerate(statements, start=1):
+        start = sql.find(stmt, cursor)
+        if start < 0:
+            start = cursor
+        end = start + len(stmt)
+
+        line_start = sql.count("\n", 0, start) + 1
+        line_end = sql.count("\n", 0, max(start, end - 1)) + 1
+
+        meta.append(
+            {
+                "statement_index": idx,
+                "statement": stmt,
+                "start_offset": start,
+                "end_offset": end,
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        )
+        cursor = end
+
+    return meta

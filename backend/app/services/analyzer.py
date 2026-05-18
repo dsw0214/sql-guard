@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 
 from .ai_client import analyze_sql_with_ai
 from .rule_engine import analyze_statement
-from .sql_parser import split_sql_statements
+from .sql_parser import split_sql_statements_with_meta
 
 
 LEVEL_WEIGHT: Dict[str, int] = {
@@ -24,7 +24,11 @@ def dedupe_issues(issues: List[Dict], max_issues: int) -> List[Dict]:
     seen = set()
     merged: List[Dict] = []
     for item in issues:
-        key = (item.get("level"), item.get("message"))
+        key = (
+            item.get("rule_id") or f"fallback:{item.get('level', 'P3')}:{item.get('message', '')}",
+            (item.get("sql_fragment") or "").strip().lower()[:400],
+            item.get("statement_index"),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -36,13 +40,19 @@ def dedupe_issues(issues: List[Dict], max_issues: int) -> List[Dict]:
 
 
 async def analyze_sql(sql: str, mode: str, dialect: Optional[str], max_issues: int) -> Dict:
-    statements = split_sql_statements(sql, dialect)
+    statement_meta = split_sql_statements_with_meta(sql, dialect)
     rule_issues: List[Dict] = []
     tables: List[str] = []
 
     if mode in {"rule", "hybrid"}:
-        for stmt in statements:
-            stmt_issues, stmt_tables = analyze_statement(stmt, dialect)
+        for item in statement_meta:
+            stmt_issues, stmt_tables = analyze_statement(
+                item["statement"],
+                dialect,
+                statement_index=item.get("statement_index"),
+                line_start=item.get("line_start"),
+                line_end=item.get("line_end"),
+            )
             rule_issues.extend(stmt_issues)
             tables.extend(stmt_tables)
 
@@ -60,7 +70,7 @@ async def analyze_sql(sql: str, mode: str, dialect: Optional[str], max_issues: i
         "issues": issues,
         "score": risk_score(issues),
         "stats": {
-            "statement_count": len(statements),
+            "statement_count": len(statement_meta),
             "table_count": len(set(tables)),
             "rule_issue_count": len(rule_issues),
             "ai_issue_count": len(ai_issues),
