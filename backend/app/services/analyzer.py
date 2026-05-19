@@ -13,6 +13,8 @@ LEVEL_WEIGHT: Dict[str, int] = {
     "P3": 6,
 }
 
+LEVEL_ORDER: Dict[str, int] = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
 
 def risk_score(
     issues: List[Dict],
@@ -147,6 +149,50 @@ def _baseline_diff(current: List[Dict], baseline: Optional[List[Dict]]) -> Dict:
     }
 
 
+def _evaluate_ci_gate(
+    gate: Optional[Dict],
+    issues: List[Dict],
+    score: int,
+    ai_error: Optional[str],
+    baseline: Dict,
+) -> Dict:
+    if not gate:
+        return {"enabled": False, "passed": True, "blocked_reasons": []}
+
+    blocked_reasons: List[str] = []
+    effective_issues = baseline.get("new_issues", []) if gate.get("only_new_issues") else issues
+
+    max_allowed_severity = gate.get("max_allowed_severity")
+    if max_allowed_severity:
+        threshold = LEVEL_ORDER.get(str(max_allowed_severity).upper(), 3)
+        breach = any(LEVEL_ORDER.get((i.get("level") or "P3").upper(), 3) < threshold for i in effective_issues)
+        if breach:
+            blocked_reasons.append(f"severity>{max_allowed_severity}")
+
+    max_score = gate.get("max_score")
+    if max_score is not None and score > int(max_score):
+        blocked_reasons.append(f"score>{max_score}")
+
+    max_total_issues = gate.get("max_total_issues")
+    if max_total_issues is not None and len(effective_issues) > int(max_total_issues):
+        blocked_reasons.append(f"issues>{max_total_issues}")
+
+    if gate.get("fail_on_ai_error") and ai_error:
+        blocked_reasons.append("ai-error")
+
+    return {
+        "enabled": True,
+        "passed": len(blocked_reasons) == 0,
+        "blocked_reasons": blocked_reasons,
+        "metrics": {
+            "effective_issue_count": len(effective_issues),
+            "score": score,
+            "ai_error": bool(ai_error),
+            "only_new_issues": bool(gate.get("only_new_issues")),
+        },
+    }
+
+
 def dedupe_issues(issues: List[Dict], max_issues: int) -> List[Dict]:
     seen = set()
     merged: List[Dict] = []
@@ -174,6 +220,7 @@ async def analyze_sql(
     policy: Optional[Dict] = None,
     suppressions: Optional[List[Dict]] = None,
     baseline_issues: Optional[List[Dict]] = None,
+    ci_gate: Optional[Dict] = None,
 ) -> Dict:
     statement_meta = split_sql_statements_with_meta(sql, dialect)
     rule_issues: List[Dict] = []
@@ -211,6 +258,7 @@ async def analyze_sql(
         unique_rule_count=unique_rule_count,
     )
     baseline = _baseline_diff(issues, baseline_issues)
+    gate_result = _evaluate_ci_gate(ci_gate, issues, score, ai_error, baseline)
 
     return {
         "sql": sql,
@@ -234,6 +282,7 @@ async def analyze_sql(
             "suppression_count": len(effective_suppressions),
         },
         "baseline": baseline,
+        "ci_gate": gate_result,
         "ai": {
             "enabled": mode in {"ai", "hybrid"},
             "error": ai_error,

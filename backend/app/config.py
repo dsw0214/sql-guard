@@ -50,6 +50,17 @@ class AppConfig:
         return max(min_value, min(max_value, value))
 
     @staticmethod
+    def _bool_env(name: str, default: bool) -> bool:
+        raw = os.getenv(name, "").strip().lower()
+        if not raw:
+            return default
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        return default
+
+    @staticmethod
     def ai_provider() -> str:
         return os.getenv("SQLGUARD_AI_PROVIDER", "openai").strip().lower()
 
@@ -86,6 +97,14 @@ class AppConfig:
         return AppConfig._float_env("SQLGUARD_AI_HTTP_TIMEOUT", 30.0, 5.0, 600.0)
 
     @staticmethod
+    def ai_max_retries() -> int:
+        return AppConfig._int_env("SQLGUARD_AI_MAX_RETRIES", 2, 1, 5)
+
+    @staticmethod
+    def ai_schema_fallback_enabled() -> bool:
+        return AppConfig._bool_env("SQLGUARD_AI_SCHEMA_FALLBACK", True)
+
+    @staticmethod
     def ollama_http_timeout_seconds() -> float:
         return AppConfig._float_env("SQLGUARD_OLLAMA_HTTP_TIMEOUT", 300.0, 5.0, 1200.0)
 
@@ -115,6 +134,8 @@ class AppConfig:
             "ai_temperature": AppConfig.ai_temperature(),
             "ai_seed": AppConfig.ai_seed(),
             "ai_http_timeout_seconds": AppConfig.ai_http_timeout_seconds(),
+            "ai_max_retries": AppConfig.ai_max_retries(),
+            "ai_schema_fallback_enabled": AppConfig.ai_schema_fallback_enabled(),
             "ollama_http_timeout_seconds": AppConfig.ollama_http_timeout_seconds(),
             "rule_policy": AppConfig.rule_policy_view(),
             "default_suppressions": AppConfig.default_suppressions(),

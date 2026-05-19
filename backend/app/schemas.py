@@ -16,6 +16,14 @@ class RuleSuppression(BaseModel):
     statement_index: Optional[int] = Field(default=None, ge=1)
 
 
+class CIGate(BaseModel):
+    max_allowed_severity: Optional[Literal["P0", "P1", "P2", "P3"]] = None
+    max_score: Optional[int] = Field(default=None, ge=0, le=100)
+    max_total_issues: Optional[int] = Field(default=None, ge=0, le=10000)
+    fail_on_ai_error: bool = False
+    only_new_issues: bool = False
+
+
 class SQLRequest(BaseModel):
     sql: str
     mode: Literal["rule", "ai", "hybrid"] = "hybrid"
@@ -24,6 +32,7 @@ class SQLRequest(BaseModel):
     policy: Optional[RulePolicy] = None
     suppressions: List[RuleSuppression] = Field(default_factory=list)
     baseline_issues: List[Dict] = Field(default_factory=list)
+    ci_gate: Optional[CIGate] = None
 
 
 class ExplainRequest(BaseModel):
@@ -42,3 +51,4 @@ class MRReviewRequest(BaseModel):
     policy: Optional[RulePolicy] = None
     suppressions: List[RuleSuppression] = Field(default_factory=list)
     baseline_issues: List[Dict] = Field(default_factory=list)
+    ci_gate: Optional[CIGate] = None

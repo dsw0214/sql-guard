@@ -39,3 +39,4 @@ lib/
 Opt.md
 .git
 .internal-docs/
+backend/tests/

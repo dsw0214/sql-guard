@@ -6,6 +6,8 @@ import httpx
 
 from app.config import AppConfig
 
+ALLOWED_LEVELS = {"P0", "P1", "P2", "P3"}
+
 
 def extract_json_array(text: str) -> List[Dict]:
     text = text.strip()
@@ -23,6 +25,107 @@ def extract_json_array(text: str) -> List[Dict]:
         return parsed if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         return []
+
+
+def _is_str_or_none(value: object) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _is_int_or_none(value: object) -> bool:
+    return value is None or isinstance(value, int)
+
+
+def _validate_ai_issue_schema(item: object) -> Optional[Dict]:
+    if not isinstance(item, dict):
+        return None
+
+    level = item.get("level")
+    message = item.get("message")
+    if not isinstance(level, str) or not isinstance(message, str):
+        return None
+
+    normalized_level = level.upper().strip()
+    if normalized_level not in ALLOWED_LEVELS:
+        return None
+
+    if not message.strip():
+        return None
+
+    optional_string_fields = ["hint", "evidence", "rule_id", "category", "sql_fragment"]
+    if any(not _is_str_or_none(item.get(field)) for field in optional_string_fields):
+        return None
+
+    optional_int_fields = ["statement_index", "line_start", "line_end"]
+    if any(not _is_int_or_none(item.get(field)) for field in optional_int_fields):
+        return None
+
+    return item
+
+
+def _coerce_ai_issue(item: Dict, sql: str) -> Optional[Dict]:
+    validated = _validate_ai_issue_schema(item)
+    if not validated:
+        return None
+
+    raw_message = str(validated.get("message", "")).strip()
+    if not raw_message:
+        return None
+
+    level = str(validated.get("level", "P3")).upper().strip()
+
+    hint = str(validated.get("hint", "")).strip() or None
+    evidence = str(validated.get("evidence", "")).strip() or raw_message
+    if len(evidence) > 260:
+        evidence = f"{evidence[:257]}..."
+
+    fragment = str(validated.get("sql_fragment", "")).strip()
+    if not fragment:
+        fragment = sql[:260].strip()
+
+    return {
+        "level": level,
+        "severity": level,
+        "message": raw_message,
+        "source": "ai",
+        "hint": hint,
+        "rule_id": str(validated.get("rule_id", "AI-GENERAL-001")).strip() or "AI-GENERAL-001",
+        "category": str(validated.get("category", "ai")).strip() or "ai",
+        "statement_index": validated.get("statement_index"),
+        "line_start": validated.get("line_start"),
+        "line_end": validated.get("line_end"),
+        "sql_fragment": fragment,
+        "evidence": evidence,
+    }
+
+
+def _fallback_ai_issues(content: str, sql: str, max_issues: int) -> List[Dict]:
+    lines = [line.strip(" -\t") for line in content.splitlines() if line.strip()]
+    candidates: List[str] = []
+    for line in lines:
+        if re.search(r"(风险|risk|slow|full\s*scan|lock|死锁|注入|drop|truncate|delete)", line, re.IGNORECASE):
+            candidates.append(line)
+    if not candidates and lines:
+        candidates = lines[:1]
+
+    issues: List[Dict] = []
+    for text in candidates[:max_issues]:
+        issues.append(
+            {
+                "level": "P3",
+                "severity": "P3",
+                "message": text[:240],
+                "source": "ai",
+                "hint": "AI 未按 JSON 返回，已使用回退提取，请人工复核",
+                "rule_id": "AI-FALLBACK-001",
+                "category": "ai",
+                "statement_index": None,
+                "line_start": None,
+                "line_end": None,
+                "sql_fragment": sql[:260].strip(),
+                "evidence": text[:260],
+            }
+        )
+    return issues
 
 
 async def call_openai_compatible(body: Dict) -> Tuple[str, Optional[str]]:
@@ -107,8 +210,9 @@ async def analyze_sql_with_ai(sql: str, dialect: Optional[str], max_issues: int)
     system_prompt = (
         "你是资深数据库审核助手。"
         "请分析 SQL 的安全性与性能风险，并仅返回 JSON 数组。"
-        "每个元素格式: {\"level\":\"P0|P1|P2|P3\",\"message\":\"...\",\"hint\":\"...\"}。"
-        "不要输出任何额外文本。"
+        "每个元素格式必须是: "
+        "{\"level\":\"P0|P1|P2|P3\",\"message\":\"...\",\"hint\":\"...\",\"evidence\":\"...\"}。"
+        "不得输出 markdown、解释文字、代码块。"
     )
     user_prompt = (
         f"SQL 方言: {dialect or 'generic'}\\n"
@@ -126,30 +230,33 @@ async def analyze_sql_with_ai(sql: str, dialect: Optional[str], max_issues: int)
     }
 
     try:
-        if AppConfig.ai_provider() == "ollama":
-            content, err = await call_ollama(system_prompt, user_prompt)
-        else:
-            content, err = await call_openai_compatible(body)
+        last_content = ""
+        for _ in range(AppConfig.ai_max_retries()):
+            if AppConfig.ai_provider() == "ollama":
+                content, err = await call_ollama(system_prompt, user_prompt)
+            else:
+                content, err = await call_openai_compatible(body)
 
-        if err:
-            return [], err
+            if err:
+                return [], err
 
-        raw_issues = extract_json_array(content)
-        issues: List[Dict] = []
-        for item in raw_issues[:max_issues]:
-            level = str(item.get("level", "P3")).upper()
-            if level not in {"P0", "P1", "P2", "P3"}:
-                level = "P3"
+            last_content = content or ""
+            raw_issues = extract_json_array(last_content)
+            issues: List[Dict] = []
+            for item in raw_issues[:max_issues]:
+                issue = _coerce_ai_issue(item, sql)
+                if issue:
+                    issues.append(issue)
 
-            issues.append(
-                {
-                    "level": level,
-                    "message": str(item.get("message", "AI 检测发现潜在风险")).strip(),
-                    "source": "ai",
-                    "hint": str(item.get("hint", "")).strip() or None,
-                }
-            )
-        return issues, None
+            if issues:
+                return issues, None
+
+        if AppConfig.ai_schema_fallback_enabled() and last_content:
+            fallback_issues = _fallback_ai_issues(last_content, sql, max_issues)
+            if fallback_issues:
+                return fallback_issues, "AI 返回格式不符合 JSON Schema，已使用回退提取"
+
+        return [], "AI 返回格式不符合 JSON Schema"
     except Exception as exc:
         msg = str(exc).strip() or exc.__class__.__name__
         return [], f"AI 请求异常: {msg}"

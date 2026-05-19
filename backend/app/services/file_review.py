@@ -58,6 +58,13 @@ def _normalize_zip_name(name: str) -> str:
     return name.replace("\\", "/").strip()
 
 
+def _top_level_dir(path: str) -> str:
+    clean = _normalize_zip_name(path)
+    if "/" not in clean:
+        return "."
+    return clean.split("/", 1)[0] or "."
+
+
 def _normalize_sql_for_hash(sql_text: str) -> str:
     normalized_lines = [line.rstrip() for line in sql_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "\n".join(normalized_lines).strip()
@@ -186,8 +193,80 @@ def _extract_sql_files_from_zip(raw: bytes) -> Tuple[List[Tuple[str, str, int]],
     return files, summary, skipped_files
 
 
-async def _review_single_sql_text(sql_text: str, mode: str, dialect: Optional[str], max_issues: int) -> Dict:
-    return await analyze_sql(sql_text, mode, dialect, max_issues)
+def _build_skip_reason_counts(skipped_files: List[Dict[str, str]]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for item in skipped_files:
+        reason = item.get("reason") or "unknown"
+        counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
+def _build_directory_summary(file_results: List[Dict]) -> List[Dict]:
+    dirs: Dict[str, Dict] = {}
+    for item in file_results:
+        filename = item.get("filename", "")
+        directory = _top_level_dir(filename)
+        if directory not in dirs:
+            dirs[directory] = {
+                "directory": directory,
+                "file_count": 0,
+                "avg_score": 0,
+                "max_score": 0,
+            }
+        row = dirs[directory]
+        row["file_count"] += 1
+        score = int(item.get("score", 0))
+        row["avg_score"] += score
+        row["max_score"] = max(row["max_score"], score)
+
+    summary: List[Dict] = []
+    for row in dirs.values():
+        count = max(1, int(row["file_count"]))
+        summary.append(
+            {
+                "directory": row["directory"],
+                "file_count": row["file_count"],
+                "avg_score": int(round(row["avg_score"] / count)),
+                "max_score": row["max_score"],
+            }
+        )
+
+    summary.sort(key=lambda x: (-x["max_score"], -x["avg_score"], x["directory"]))
+    return summary
+
+
+def _build_top_risk_files(file_results: List[Dict], limit: int = 10) -> List[Dict]:
+    level_rank = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+    def _file_rank(item: Dict):
+        levels = [i.get("level", "P3") for i in item.get("issues", [])]
+        highest = min((level_rank.get(level, 3) for level in levels), default=3)
+        return (highest, -int(item.get("score", 0)), item.get("filename", ""))
+
+    ranked = sorted(file_results, key=_file_rank)
+    return [
+        {
+            "filename": item.get("filename"),
+            "score": item.get("score", 0),
+            "highest_level": (
+                sorted((i.get("level", "P3") for i in item.get("issues", [])), key=lambda x: level_rank.get(x, 3))[0]
+                if item.get("issues")
+                else None
+            ),
+            "issue_count": len(item.get("issues", [])),
+        }
+        for item in ranked[:limit]
+    ]
+
+
+async def _review_single_sql_text(
+    sql_text: str,
+    mode: str,
+    dialect: Optional[str],
+    max_issues: int,
+    ci_gate: Optional[Dict] = None,
+) -> Dict:
+    return await analyze_sql(sql_text, mode, dialect, max_issues, ci_gate=ci_gate)
 
 
 async def _review_zip_sql_files(
@@ -196,6 +275,7 @@ async def _review_zip_sql_files(
     mode: str,
     dialect: Optional[str],
     max_issues: int,
+    ci_gate: Optional[Dict] = None,
 ) -> Dict:
     files, zip_summary, skipped_files = _extract_sql_files_from_zip(raw)
 
@@ -225,7 +305,7 @@ async def _review_zip_sql_files(
     async def _analyze_one(sql_key: str, sql_text: str) -> Optional[Dict]:
         async with semaphore:
             try:
-                result = await _review_single_sql_text(sql_text, mode, dialect, max_issues)
+                result = await _review_single_sql_text(sql_text, mode, dialect, max_issues, ci_gate=ci_gate)
                 analysis_cache[sql_key] = result
                 return result
             except Exception as exc:  # pragma: no cover - defensive guard for partial failure
@@ -316,6 +396,9 @@ async def _review_zip_sql_files(
         )
 
     unique_rule_count = len({i.get("rule_id") for i in merged_issues if i.get("rule_id")})
+    skip_reason_counts = _build_skip_reason_counts(skipped_files)
+    directory_summary = _build_directory_summary(file_results)
+    top_risk_files = _build_top_risk_files(file_results)
 
     return {
         "sql": "",
@@ -355,6 +438,11 @@ async def _review_zip_sql_files(
             "analyze_concurrency": ZIP_ANALYZE_CONCURRENCY,
             "unique_sql_count": len(grouped_files),
             "content_groups": content_groups,
+            "global_summary": {
+                "skip_reason_counts": skip_reason_counts,
+                "directory_summary": directory_summary,
+                "top_risk_files": top_risk_files,
+            },
         },
     }
 
@@ -364,6 +452,7 @@ async def review_sql_attachment(
     mode: str,
     dialect: Optional[str],
     max_issues: int,
+    ci_gate: Optional[Dict] = None,
 ) -> dict:
     filename = upload_file.filename or ""
     raw = await upload_file.read()
@@ -371,7 +460,7 @@ async def review_sql_attachment(
 
     if ext == ".zip":
         _validate_zip_size(len(raw))
-        return await _review_zip_sql_files(filename, raw, mode, dialect, max_issues)
+        return await _review_zip_sql_files(filename, raw, mode, dialect, max_issues, ci_gate=ci_gate)
 
     _validate_file(filename, len(raw))
 
@@ -379,7 +468,7 @@ async def review_sql_attachment(
     if not sql_text:
         raise HTTPException(status_code=400, detail="文件内容为空")
 
-    result = await _review_single_sql_text(sql_text, mode, dialect, max_issues)
+    result = await _review_single_sql_text(sql_text, mode, dialect, max_issues, ci_gate=ci_gate)
     result["attachment"] = {
         "filename": filename,
         "size": len(raw),
