@@ -1,4 +1,14 @@
-import { getApiBase } from "./constants.js";
+import { getApiBase, getApiToken } from "./constants.js";
+
+function buildAuthHeaders() {
+    const token = getApiToken();
+    if (!token) {
+        return {};
+    }
+    return {
+        Authorization: `Bearer ${token}`,
+    };
+}
 
 export async function requestWithTimeout(url, options, timeoutMs = 200000) {
     const controller = new AbortController();
@@ -32,6 +42,7 @@ export async function reviewSqlRequest({ sql, mode, dialect, maxIssues }) {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...buildAuthHeaders(),
         },
         body: JSON.stringify({
             sql,
@@ -51,6 +62,9 @@ export async function reviewSqlFileRequest({ file, mode, dialect, maxIssues }) {
 
     return requestWithTimeout(`${getApiBase()}/review/upload`, {
         method: "POST",
+        headers: {
+            ...buildAuthHeaders(),
+        },
         body: formData,
     });
 }

@@ -83,7 +83,8 @@ python main.py
 
 - 需要在服务器安全组/防火墙放行端口（如 `8000`）
 - 公网部署建议配反向代理（Nginx/Caddy）并启用 HTTPS
-- 当前 CORS 为 `*`，若对外提供服务，建议限制来源域名
+- 当前 CORS 默认按 `ALLOWED_ORIGINS` 白名单控制，并非全开放
+- 公网部署建议启用 `SQLGUARD_API_TOKEN`，避免匿名调用 `/review`、`/review/upload`、`/gitlab/mr-review`
 
 ---
 
@@ -134,8 +135,9 @@ spctl --add --label "sql-guard-local" /Applications/sql-guard.app
 ```bash
 docker run --rm -it \
 	-p 8000:8000 \
-	-e SQLGUARD_HOST=0.0.0.0 \
+	-e SQLGUARD_HOST=127.0.0.1 \
 	-e SQLGUARD_PORT=8000 \
+	-e SQLGUARD_API_TOKEN=replace-with-a-long-random-token \
 	-e SQLGUARD_AI_PROVIDER=ollama \
 	-e SQLGUARD_OLLAMA_BASE_URL=http://host.docker.internal:11434 \
 	-e SQLGUARD_OLLAMA_MODEL=qwen3.5:9b \
@@ -179,8 +181,9 @@ services:
 			- ./backend:/app
 		command: sh -c "pip install -r requirements.txt && python main.py"
 		environment:
-			SQLGUARD_HOST: ${SQLGUARD_HOST:-0.0.0.0}
+			SQLGUARD_HOST: ${SQLGUARD_HOST:-127.0.0.1}
 			SQLGUARD_PORT: ${SQLGUARD_PORT:-8000}
+			SQLGUARD_API_TOKEN: ${SQLGUARD_API_TOKEN:-}
 			SQLGUARD_AI_PROVIDER: ${SQLGUARD_AI_PROVIDER:-ollama}
 			SQLGUARD_OLLAMA_BASE_URL: ${SQLGUARD_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
 			SQLGUARD_OLLAMA_MODEL: ${SQLGUARD_OLLAMA_MODEL:-qwen3.5:9b}
@@ -222,7 +225,7 @@ docker compose down
 - 生产环境建议：
 	- 使用 Nginx/Caddy 反向代理并启用 HTTPS
 	- 限制 CORS 来源，使用环境变量 `ALLOWED_ORIGINS` 配置
-	- 按需增加鉴权（如 API Token、HTTP Basic Auth）
+	- 启用 `SQLGUARD_API_TOKEN` 或在反向代理层增加鉴权
 
 ---
 
@@ -256,6 +259,25 @@ ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
 # Docker 启动时传入
 docker run -e ALLOWED_ORIGINS="https://yourdomain.com" ...
 ```
+
+#### 1.1 API Token 鉴权
+
+公网部署建议同时启用后端 Token 鉴权：
+
+```bash
+SQLGUARD_API_TOKEN=replace-with-a-long-random-token
+```
+
+启用后：
+
+- `/review`
+- `/review/upload`
+- `/explain`
+- `/gitlab/mr-review`
+
+都需要发送 `Authorization: Bearer <token>` 或 `X-API-Key: <token>`。
+
+`/config` 默认关闭；只有设置 `SQLGUARD_EXPOSE_CONFIG=true` 才会启用。
 
 #### 2. HTTPS 配置（使用 Nginx）
 
@@ -364,6 +386,7 @@ cd electron && npm audit
 部署到生产环境前，请确保：
 
 - [ ] 修改 `.env` 中的 `ALLOWED_ORIGINS` 为你的实际域名
+- [ ] 设置 `SQLGUARD_API_TOKEN`，避免公网匿名访问分析接口
 - [ ] 启用了 HTTPS（获取有效的 SSL 证书）
 - [ ] 配置了反向代理（Nginx/Caddy）
 - [ ] 设置了强密码和 API 密钥（若使用 OpenAI）
@@ -376,6 +399,7 @@ cd electron && npm audit
 
 - 打开客户端设置中的"服务器地址"
 - 填写：`http://宿主机IP:8000` 或 `https://yourdomain.com`（若使用 HTTPS）
+- 如果后端启用了 `SQLGUARD_API_TOKEN`，在客户端设置中的 `API Token` 一栏填入同一个 token
 - 点击"刷新后端状态"确认连通
 
 ### 报告安全漏洞

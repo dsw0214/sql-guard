@@ -22,6 +22,7 @@ export function saveSettings(refs) {
         themeMode: refs.themeMode.value,
         themeColor: refs.themeColor.value,
         serverUrl: refs.serverUrl.value.trim(),
+        apiToken: refs.apiToken.value.trim(),
         previewScrollMode: refs.previewScrollMode.value,
         mode: refs.mode.value,
         dialect: refs.dialect.value || "generic",
@@ -55,6 +56,10 @@ export function applyPersistedSettings(refs) {
         refs.serverUrl.value = settings.serverUrl.trim();
     }
 
+    if (typeof settings.apiToken === "string") {
+        refs.apiToken.value = settings.apiToken.trim();
+    }
+
     if (settings.previewScrollMode === "smooth" || settings.previewScrollMode === "instant") {
         refs.previewScrollMode.value = settings.previewScrollMode;
     }
@@ -75,6 +80,7 @@ export function applyDefaultSettings(refs) {
     refs.themeMode.value = "default";
     refs.themeColor.value = "#43e7ff";
     refs.serverUrl.value = "";
+    refs.apiToken.value = "";
     refs.previewScrollMode.value = "smooth";
     refs.mode.value = "hybrid";
     refs.dialect.value = "generic";

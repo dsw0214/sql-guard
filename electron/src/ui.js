@@ -17,6 +17,7 @@ export function getRefs() {
         themeMode: document.getElementById("themeMode"),
         themeColor: document.getElementById("themeColor"),
         serverUrl: document.getElementById("serverUrl"),
+        apiToken: document.getElementById("apiToken"),
         previewScrollMode: document.getElementById("previewScrollMode"),
         exportJsonBtn: document.getElementById("exportJsonBtn"),
         exportMdBtn: document.getElementById("exportMdBtn"),

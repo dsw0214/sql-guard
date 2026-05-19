@@ -15,3 +15,18 @@ export function getApiBase() {
     }
     return DEFAULT_API_BASE;
 }
+
+export function getApiToken() {
+    try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.apiToken === "string" && parsed.apiToken.trim()) {
+                return parsed.apiToken.trim();
+            }
+        }
+    } catch (_) {
+        // Fall through to empty token.
+    }
+    return "";
+}

@@ -283,6 +283,10 @@ function bindEvents() {
         refreshBackendStatus(refs);
     });
 
+    refs.apiToken.addEventListener("change", () => {
+        saveSettings(refs);
+    });
+
     refs.previewSearch.addEventListener("input", (e) => {
         renderPreviewContent(refs, (e.target && e.target.value) || "");
     });
