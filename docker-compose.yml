@@ -9,7 +9,7 @@ services:
       - ./backend:/app
     command: sh -c "pip install -r requirements.txt && python main.py"
     environment:
-      SQLGUARD_HOST: ${SQLGUARD_HOST:-0.0.0.0}
+      SQLGUARD_HOST: ${SQLGUARD_HOST:-127.0.0.1}
       SQLGUARD_PORT: ${SQLGUARD_PORT:-8000}
       SQLGUARD_AI_PROVIDER: ${SQLGUARD_AI_PROVIDER:-ollama}
       SQLGUARD_OLLAMA_BASE_URL: ${SQLGUARD_OLLAMA_BASE_URL:-http://host.docker.internal:11434}

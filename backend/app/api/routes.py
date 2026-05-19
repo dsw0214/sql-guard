@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
 from app.config import AppConfig
 from app.schemas import ExplainRequest, MRReviewRequest, SQLRequest
@@ -10,6 +10,23 @@ from app.services.mr_review import review_merge_request
 router = APIRouter()
 
 
+def _require_api_auth(authorization: str | None = None, x_api_key: str | None = None) -> None:
+    expected_token = AppConfig.api_auth_token()
+    if not expected_token:
+        return
+
+    bearer_token = ""
+    if authorization:
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer":
+            bearer_token = value.strip()
+
+    if bearer_token == expected_token or (x_api_key or "").strip() == expected_token:
+        return
+
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @router.get("/")
 def health():
     return {
@@ -19,7 +36,12 @@ def health():
 
 
 @router.post("/review")
-async def review(req: SQLRequest):
+async def review(
+    req: SQLRequest,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
     return await analyze_sql(
         req.sql,
         req.mode,
@@ -43,7 +65,10 @@ async def review_upload(
     gate_max_total_issues: int = Form(-1),
     gate_fail_on_ai_error: bool = Form(False),
     gate_only_new_issues: bool = Form(False),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ):
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
     if mode not in {"rule", "ai", "hybrid"}:
         raise HTTPException(status_code=400, detail="mode 仅支持 rule/ai/hybrid")
 
@@ -70,12 +95,22 @@ async def review_upload(
 
 
 @router.post("/explain")
-def explain(req: ExplainRequest):
+def explain(
+    req: ExplainRequest,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
     return explain_sql(req.sql, req.dialect)
 
 
 @router.post("/gitlab/mr-review")
-async def gitlab_mr_review(req: MRReviewRequest):
+async def gitlab_mr_review(
+    req: MRReviewRequest,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
     return await review_merge_request(
         title=req.title,
         description=req.description,
@@ -92,5 +127,11 @@ async def gitlab_mr_review(req: MRReviewRequest):
 
 
 @router.get("/config")
-def config():
+def config(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    if not AppConfig.config_endpoint_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
     return AppConfig.config_view()

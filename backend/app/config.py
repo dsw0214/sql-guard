@@ -77,6 +77,14 @@ class AppConfig:
         return os.getenv("SQLGUARD_AI_API_KEY", "").strip()
 
     @staticmethod
+    def api_auth_token() -> str:
+        return os.getenv("SQLGUARD_API_TOKEN", "").strip()
+
+    @staticmethod
+    def config_endpoint_enabled() -> bool:
+        return AppConfig._bool_env("SQLGUARD_EXPOSE_CONFIG", False)
+
+    @staticmethod
     def ollama_base_url() -> str:
         return os.getenv("SQLGUARD_OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
 
@@ -126,10 +134,8 @@ class AppConfig:
     def config_view() -> dict:
         return {
             "provider": AppConfig.ai_provider(),
-            "ai_base_url": AppConfig.ai_base_url(),
             "ai_model": AppConfig.ai_model(),
             "ai_key_configured": bool(AppConfig.ai_api_key()),
-            "ollama_base_url": AppConfig.ollama_base_url(),
             "ollama_model": AppConfig.ollama_model(),
             "ai_temperature": AppConfig.ai_temperature(),
             "ai_seed": AppConfig.ai_seed(),
@@ -139,4 +145,6 @@ class AppConfig:
             "ollama_http_timeout_seconds": AppConfig.ollama_http_timeout_seconds(),
             "rule_policy": AppConfig.rule_policy_view(),
             "default_suppressions": AppConfig.default_suppressions(),
+            "api_auth_enabled": bool(AppConfig.api_auth_token()),
+            "config_endpoint_enabled": AppConfig.config_endpoint_enabled(),
         }

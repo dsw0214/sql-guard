@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
         allow_origins=allowed_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST"],  # 仅需要的方法
-        allow_headers=["Content-Type"],  # 仅需要的请求头
+        allow_headers=["Content-Type", "Authorization", "X-API-Key"],  # 仅需要的请求头
     )
     app.include_router(router)
     return app

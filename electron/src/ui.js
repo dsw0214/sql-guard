@@ -384,7 +384,7 @@ export function renderError(refs, err) {
         <h2>检测结果</h2>
         <div class="issue">
             <b>ERROR</b><br>
-            ${msg}
+            ${escapeHtml(msg)}
         </div>
     `;
 }
