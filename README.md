@@ -134,8 +134,8 @@ spctl --add --label "sql-guard-local" /Applications/sql-guard.app
 
 ```bash
 docker run --rm -it \
-	-p 8000:8000 \
-	-e SQLGUARD_HOST=127.0.0.1 \
+	-p 127.0.0.1:8000:8000 \
+	-e SQLGUARD_HOST=0.0.0.0 \
 	-e SQLGUARD_PORT=8000 \
 	-e SQLGUARD_API_TOKEN=replace-with-a-long-random-token \
 	-e SQLGUARD_AI_PROVIDER=ollama \
@@ -181,7 +181,7 @@ services:
 			- ./backend:/app
 		command: sh -c "pip install -r requirements.txt && python main.py"
 		environment:
-			SQLGUARD_HOST: ${SQLGUARD_HOST:-127.0.0.1}
+			SQLGUARD_HOST: ${SQLGUARD_HOST:-0.0.0.0}
 			SQLGUARD_PORT: ${SQLGUARD_PORT:-8000}
 			SQLGUARD_API_TOKEN: ${SQLGUARD_API_TOKEN:-}
 			SQLGUARD_AI_PROVIDER: ${SQLGUARD_AI_PROVIDER:-ollama}
@@ -189,7 +189,7 @@ services:
 			SQLGUARD_OLLAMA_MODEL: ${SQLGUARD_OLLAMA_MODEL:-qwen3.5:9b}
 			SQLGUARD_OLLAMA_HTTP_TIMEOUT: ${SQLGUARD_OLLAMA_HTTP_TIMEOUT:-300}
 		ports:
-			- "${SQLGUARD_PORT:-8000}:8000"
+			- "127.0.0.1:${SQLGUARD_PORT:-8000}:8000"
 		restart: unless-stopped
 ```
 
