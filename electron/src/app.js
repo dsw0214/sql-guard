@@ -1,7 +1,7 @@
 import { state } from "./state.js";
 import { sanitizeFilename, downloadText } from "./helpers.js";
 import { applyPersistedSettings, applyDefaultSettings, applyDefaultExportSettings, clearSettings, saveSettings } from "./settings.js";
-import { reviewSqlRequest, reviewSqlFileRequest, checkBackendStatus } from "./api.js";
+import { reviewSqlRequest, reviewSqlFileRequest, checkBackendStatus, fetchAiConfig, updateAiConfig } from "./api.js";
 import { buildJsonPayload, buildJsonSubReport, toMarkdownReport, toMarkdownSubReport } from "./reports.js";
 import { loadDesktopMeta, openExternalSafely } from "./desktop.js";
 import { applyTheme, normalizeThemeColor, normalizeThemeMode, syncThemeControls } from "./theme.js";
@@ -23,6 +23,7 @@ import {
 } from "./ui.js";
 
 const refs = getRefs();
+let cachedOpenAiApiKey = "";
 
 function applyThemeFromControls() {
     const mode = normalizeThemeMode(refs.themeMode.value);
@@ -31,6 +32,100 @@ function applyThemeFromControls() {
     refs.themeColor.value = color;
     applyTheme(mode, color);
     syncThemeControls(refs);
+}
+
+function syncAiProviderVisibility() {
+    const provider = refs.aiProvider && refs.aiProvider.value === "openai" ? "openai" : "ollama";
+    if (refs.openaiConfigGroup) {
+        refs.openaiConfigGroup.style.display = provider === "openai" ? "contents" : "none";
+    }
+    if (refs.ollamaConfigGroup) {
+        refs.ollamaConfigGroup.style.display = provider === "ollama" ? "contents" : "none";
+    }
+    if (provider === "ollama" && refs.aiApiKey) {
+        if (refs.aiApiKey.value) {
+            cachedOpenAiApiKey = refs.aiApiKey.value;
+        }
+        refs.aiApiKey.value = "";
+    } else if (provider === "openai" && refs.aiApiKey && !refs.aiApiKey.value && cachedOpenAiApiKey) {
+        refs.aiApiKey.value = cachedOpenAiApiKey;
+    }
+}
+
+function applyAiConfigToForm(data) {
+    if (!data || typeof data !== "object") {
+        return;
+    }
+    if (data.provider === "openai" || data.provider === "ollama") {
+        refs.aiProvider.value = data.provider;
+    }
+    if (typeof data.ai_base_url === "string") {
+        refs.aiBaseUrl.value = data.ai_base_url;
+    }
+    if (typeof data.ai_model === "string") {
+        refs.aiModel.value = data.ai_model;
+    }
+    if (typeof data.ai_http_timeout === "string" || typeof data.ai_http_timeout === "number") {
+        refs.aiHttpTimeout.value = String(data.ai_http_timeout);
+    }
+    if (typeof data.ollama_base_url === "string") {
+        refs.ollamaBaseUrl.value = data.ollama_base_url;
+    }
+    if (typeof data.ollama_model === "string") {
+        refs.ollamaModel.value = data.ollama_model;
+    }
+    if (typeof data.ollama_http_timeout === "string" || typeof data.ollama_http_timeout === "number") {
+        refs.ollamaHttpTimeout.value = String(data.ollama_http_timeout);
+    }
+    syncAiProviderVisibility();
+}
+
+async function loadAiRuntimeConfig() {
+    if (!refs.loadAiConfigBtn || !refs.aiConfigStatus) {
+        return;
+    }
+
+    refs.loadAiConfigBtn.disabled = true;
+    refs.aiConfigStatus.textContent = "正在加载模型配置...";
+    try {
+        const data = await fetchAiConfig();
+        applyAiConfigToForm(data);
+        saveSettings(refs);
+        refs.aiConfigStatus.textContent = "模型配置已加载";
+    } catch (err) {
+        refs.aiConfigStatus.textContent = `加载失败: ${err && err.message ? err.message : "unknown"}`;
+    } finally {
+        refs.loadAiConfigBtn.disabled = false;
+    }
+}
+
+async function saveAiRuntimeConfig() {
+    if (!refs.saveAiConfigBtn || !refs.aiConfigStatus) {
+        return;
+    }
+
+    refs.saveAiConfigBtn.disabled = true;
+    refs.aiConfigStatus.textContent = "正在保存模型配置...";
+    try {
+        const payload = {
+            provider: refs.aiProvider.value,
+            ai_base_url: refs.aiBaseUrl.value.trim(),
+            ai_model: refs.aiModel.value.trim(),
+            ai_api_key: refs.aiApiKey.value,
+            ai_http_timeout: String(refs.aiHttpTimeout.value || "").trim(),
+            ollama_base_url: refs.ollamaBaseUrl.value.trim(),
+            ollama_model: refs.ollamaModel.value.trim(),
+            ollama_http_timeout: String(refs.ollamaHttpTimeout.value || "").trim(),
+        };
+        const data = await updateAiConfig(payload);
+        applyAiConfigToForm(data);
+        saveSettings(refs);
+        refs.aiConfigStatus.textContent = "模型配置已保存并生效";
+    } catch (err) {
+        refs.aiConfigStatus.textContent = `保存失败: ${err && err.message ? err.message : "unknown"}`;
+    } finally {
+        refs.saveAiConfigBtn.disabled = false;
+    }
 }
 
 async function refreshBackendStatus() {
@@ -243,6 +338,12 @@ function bindEvents() {
     if (refs.refreshBackendStatusBtn) {
         refs.refreshBackendStatusBtn.addEventListener("click", refreshBackendStatus);
     }
+    if (refs.loadAiConfigBtn) {
+        refs.loadAiConfigBtn.addEventListener("click", loadAiRuntimeConfig);
+    }
+    if (refs.saveAiConfigBtn) {
+        refs.saveAiConfigBtn.addEventListener("click", saveAiRuntimeConfig);
+    }
 
     refs.previewCancelBtn.addEventListener("click", () => closePreviewModal(refs));
     refs.confirmDownloadBtn.addEventListener("click", downloadPreviewReport);
@@ -286,6 +387,18 @@ function bindEvents() {
     refs.apiToken.addEventListener("change", () => {
         saveSettings(refs);
     });
+
+    refs.aiProvider.addEventListener("change", () => {
+        syncAiProviderVisibility();
+        saveSettings(refs);
+    });
+    refs.aiBaseUrl.addEventListener("change", () => saveSettings(refs));
+    refs.aiModel.addEventListener("change", () => saveSettings(refs));
+    refs.aiApiKey.addEventListener("change", () => saveSettings(refs));
+    refs.aiHttpTimeout.addEventListener("change", () => saveSettings(refs));
+    refs.ollamaBaseUrl.addEventListener("change", () => saveSettings(refs));
+    refs.ollamaModel.addEventListener("change", () => saveSettings(refs));
+    refs.ollamaHttpTimeout.addEventListener("change", () => saveSettings(refs));
 
     refs.previewSearch.addEventListener("input", (e) => {
         renderPreviewContent(refs, (e.target && e.target.value) || "");
@@ -356,9 +469,11 @@ function bindEvents() {
 
 function init() {
     applyPersistedSettings(refs);
+    syncAiProviderVisibility();
     applyThemeFromControls();
     bindEvents();
     refreshBackendStatus();
+    loadAiRuntimeConfig();
 
     loadDesktopMeta().then((meta) => {
         if (!refs.appMeta) {

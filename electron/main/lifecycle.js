@@ -8,6 +8,10 @@ const { shouldDisableHardwareAcceleration } = require("./config.js");
 const APP_DISPLAY_NAME = "sql-guard";
 
 if (shouldDisableHardwareAcceleration()) {
+  // Some Chromium GPU mailbox errors still appear on macOS unless the
+  // related command-line switches are disabled before app ready.
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
   app.disableHardwareAcceleration();
 }
 

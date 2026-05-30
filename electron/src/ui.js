@@ -18,6 +18,19 @@ export function getRefs() {
         themeColor: document.getElementById("themeColor"),
         serverUrl: document.getElementById("serverUrl"),
         apiToken: document.getElementById("apiToken"),
+        aiProvider: document.getElementById("aiProvider"),
+        aiBaseUrl: document.getElementById("aiBaseUrl"),
+        aiModel: document.getElementById("aiModel"),
+        aiApiKey: document.getElementById("aiApiKey"),
+        aiHttpTimeout: document.getElementById("aiHttpTimeout"),
+        ollamaBaseUrl: document.getElementById("ollamaBaseUrl"),
+        ollamaModel: document.getElementById("ollamaModel"),
+        ollamaHttpTimeout: document.getElementById("ollamaHttpTimeout"),
+        openaiConfigGroup: document.getElementById("openaiConfigGroup"),
+        ollamaConfigGroup: document.getElementById("ollamaConfigGroup"),
+        loadAiConfigBtn: document.getElementById("loadAiConfigBtn"),
+        saveAiConfigBtn: document.getElementById("saveAiConfigBtn"),
+        aiConfigStatus: document.getElementById("aiConfigStatus"),
         previewScrollMode: document.getElementById("previewScrollMode"),
         exportJsonBtn: document.getElementById("exportJsonBtn"),
         exportMdBtn: document.getElementById("exportMdBtn"),
@@ -94,10 +107,47 @@ export function setExportEnabled(refs, enabled) {
 function renderIssueBlock(issue) {
     const level = String(issue.level || "P3").toUpperCase();
     const levelClass = ["P0", "P1", "P2", "P3"].includes(level) ? `level-${level.toLowerCase()}` : "level-p3";
+    const structureGroup = issue.structure_group ? String(issue.structure_group) : "";
+    const occurrenceCount = Number(issue.occurrence_count || 0);
+    const statementIndices = Array.isArray(issue.statement_indices) ? issue.statement_indices.filter(Number.isInteger) : [];
+    const stmtRange = statementIndices.length
+        ? `${statementIndices[0]}-${statementIndices[statementIndices.length - 1]}`
+        : "";
+    const stmtIndex = Number.isInteger(issue.statement_index) ? issue.statement_index : null;
+    const lineStart = Number.isInteger(issue.line_start) ? issue.line_start : null;
+    const lineEnd = Number.isInteger(issue.line_end) ? issue.line_end : null;
+    const ddlType = issue.ddl_reference && issue.ddl_reference.ddl_type
+        ? String(issue.ddl_reference.ddl_type)
+        : "";
+    const structureOutline = String((issue.ddl_reference && issue.ddl_reference.structure_outline) || issue.structure_outline || "").trim();
+    const fragment = String((issue.ddl_reference && issue.ddl_reference.sql_fragment) || issue.sql_fragment || "").trim();
+
+    const metaParts = [`来源: ${escapeHtml(issue.source || "rule")}`];
+    if (structureGroup) {
+        metaParts.push(`结构组: ${escapeHtml(structureGroup)}`);
+    }
+    if (stmtIndex !== null) {
+        metaParts.push(`语句#${stmtIndex}`);
+    }
+    if (statementIndices.length > 1) {
+        metaParts.push(`语句组:${stmtRange}`);
+    }
+    if (lineStart !== null) {
+        metaParts.push(lineEnd !== null && lineEnd !== lineStart ? `行 ${lineStart}-${lineEnd}` : `行 ${lineStart}`);
+    }
+    if (occurrenceCount > 1) {
+        metaParts.push(`同结构命中 ${occurrenceCount} 次`);
+    }
+    if (ddlType) {
+        metaParts.push(`DDL: ${escapeHtml(ddlType)}`);
+    }
+
     return `
         <div class="issue ${levelClass}">
-            <b class="issue-level">${escapeHtml(level)}</b> <span class="meta">来源: ${escapeHtml(issue.source || "rule")}</span><br>
+            <b class="issue-level">${escapeHtml(level)}</b> <span class="meta">${metaParts.join(" | ")}</span><br>
             ${escapeHtml(issue.message)}${issue.hint ? `<div class="meta">建议: ${escapeHtml(issue.hint)}</div>` : ""}
+            ${structureOutline ? `<div class="meta">结构: <code>${escapeHtml(structureOutline.length > 260 ? `${structureOutline.slice(0, 260)}...` : structureOutline)}</code></div>` : ""}
+            ${fragment ? `<div class="meta">SQL: <code>${escapeHtml(fragment.length > 220 ? `${fragment.slice(0, 220)}...` : fragment)}</code></div>` : ""}
         </div>
     `;
 }
@@ -108,23 +158,38 @@ function renderGroupedIssues(issues) {
     }
 
     const levelOrder = ["P0", "P1", "P2", "P3"];
-    const groups = new Map(levelOrder.map((level) => [level, []]));
+    const groups = new Map();
 
     issues.forEach((issue) => {
         const level = String(issue.level || "P3").toUpperCase();
-        const key = groups.has(level) ? level : "P3";
-        groups.get(key).push(issue);
+        const normalized = levelOrder.includes(level) ? level : "P3";
+        const sg = issue.structure_group ? String(issue.structure_group) : "SG-UNGROUPED";
+        const key = `${normalized}|${sg}`;
+        if (!groups.has(key)) {
+            groups.set(key, { level: normalized, structureGroup: sg, items: [] });
+        }
+        groups.get(key).items.push(issue);
     });
 
-    return levelOrder
-        .filter((level) => groups.get(level).length > 0)
-        .map((level) => {
-            const items = groups.get(level);
-            const levelClass = `severity-group severity-${level.toLowerCase()}`;
+    const sections = Array.from(groups.values()).sort((left, right) => {
+        const leftIdx = levelOrder.indexOf(left.level);
+        const rightIdx = levelOrder.indexOf(right.level);
+        if (leftIdx !== rightIdx) {
+            return leftIdx - rightIdx;
+        }
+        if (right.items.length !== left.items.length) {
+            return right.items.length - left.items.length;
+        }
+        return left.structureGroup.localeCompare(right.structureGroup);
+    });
+
+    return sections
+        .map((section) => {
+            const levelClass = `severity-group severity-${section.level.toLowerCase()}`;
             return `
                 <section class="${levelClass}">
-                    <div class="severity-group-title">${level} · ${items.length} 条</div>
-                    ${items.map(renderIssueBlock).join("")}
+                    <div class="severity-group-title">${section.level} · ${escapeHtml(section.structureGroup)} · ${section.items.length} 条</div>
+                    ${section.items.map(renderIssueBlock).join("")}
                 </section>
             `;
         })
@@ -253,7 +318,10 @@ export function renderResult(refs, data, mode) {
     setExportEnabled(refs, true);
 
     const { highRiskOnly, archiveDiagFilter } = getFilterOptions(refs);
-    const displayIssues = filterIssues(data.issues, highRiskOnly);
+    const sourceIssues = Array.isArray(data.grouped_issues) && data.grouped_issues.length
+        ? data.grouped_issues
+        : data.issues;
+    const displayIssues = filterIssues(sourceIssues, highRiskOnly);
 
     let html = `<h2>检测结果</h2>
         <p class="meta">模式: ${data.mode || mode} | 风险分: ${data.score ?? 0} | 问题数: ${data.stats?.total_issue_count ?? 0}</p>`;
@@ -353,7 +421,10 @@ export function renderResult(refs, data, mode) {
         });
 
         filesForDisplay.forEach((file) => {
-            const fileIssues = filterIssues(file.issues, highRiskOnly);
+            const fileSourceIssues = Array.isArray(file.grouped_issues) && file.grouped_issues.length
+                ? file.grouped_issues
+                : file.issues;
+            const fileIssues = filterIssues(fileSourceIssues, highRiskOnly);
             html += `
                 <details class="file-detail" data-filename="${escapeHtml(file.filename)}">
                     <summary>${escapeHtml(file.filename)} | 分组: ${escapeHtml(file.content_group || "n/a")} | 同组文件数: ${file.content_group_size ?? 1} | 风险分: ${file.score ?? 0} | 问题数: ${file.stats?.total_issue_count ?? 0} | 大小: ${file.size} bytes</summary>

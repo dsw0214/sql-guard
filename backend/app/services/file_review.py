@@ -6,8 +6,10 @@ import zipfile
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, UploadFile
+from sqlglot import exp
 
 from .analyzer import analyze_sql, dedupe_issues, risk_score
+from .sql_parser import split_sql_statements, parse_stmt
 
 ALLOWED_SQL_EXTENSIONS = {".sql", ".txt"}
 ALLOWED_EXTENSIONS = {".sql", ".txt", ".zip"}
@@ -68,6 +70,46 @@ def _top_level_dir(path: str) -> str:
 def _normalize_sql_for_hash(sql_text: str) -> str:
     normalized_lines = [line.rstrip() for line in sql_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "\n".join(normalized_lines).strip()
+
+
+def _canonicalize_create_table_sql(sql_text: str, dialect: Optional[str]) -> Optional[str]:
+    statements = split_sql_statements(sql_text, dialect)
+    if not statements:
+        return None
+
+    canonical_statements: List[str] = []
+    for stmt in statements:
+        expr_tree = parse_stmt(stmt, dialect)
+        if not isinstance(expr_tree, exp.Create):
+            return None
+
+        table = expr_tree.find(exp.Table)
+        if table is None:
+            return None
+
+        canonical_expr = expr_tree.copy()
+        canonical_table = canonical_expr.find(exp.Table)
+        if canonical_table is None:
+            return None
+
+        canonical_table.set("this", exp.to_identifier("__TABLE__"))
+        if canonical_table.args.get("db") is not None:
+            canonical_table.set("db", exp.to_identifier("__DB__"))
+        if canonical_table.args.get("catalog") is not None:
+            canonical_table.set("catalog", exp.to_identifier("__CATALOG__"))
+        canonical_statements.append(canonical_expr.sql())
+
+    return ";\n".join(canonical_statements)
+
+
+def _build_sql_group_key(sql_text: str, dialect: Optional[str]) -> str:
+    canonical_create_sql = _canonicalize_create_table_sql(sql_text, dialect)
+    if canonical_create_sql:
+        normalized = _normalize_sql_for_hash(canonical_create_sql)
+        return f"create-structure:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()}"
+
+    normalized = _normalize_sql_for_hash(sql_text)
+    return f"full-sql:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()}"
 
 
 def _format_group_id(sql_hash: str) -> str:
@@ -293,7 +335,7 @@ async def _review_zip_sql_files(
     # Group files by normalized SQL hash so same content gets the same analysis result.
     grouped_files: Dict[str, Dict[str, object]] = {}
     for inner_name, sql_text, inner_size in files:
-        sql_key = hashlib.sha256(_normalize_sql_for_hash(sql_text).encode("utf-8")).hexdigest()
+        sql_key = _build_sql_group_key(sql_text, dialect)
         if sql_key not in grouped_files:
             grouped_files[sql_key] = {
                 "sql_text": sql_text,
@@ -354,6 +396,9 @@ async def _review_zip_sql_files(
                     "size": inner_size,
                     "score": result.get("score", 0),
                     "issues": result.get("issues", []),
+                    "grouped_issues": result.get("grouped_issues", []),
+                    "structure_groups": result.get("structure_groups", []),
+                    "ddl_references": result.get("ddl_references", []),
                     "stats": result.get("stats", {}),
                     "content_group": group_id,
                     "content_group_size": len(group_items),

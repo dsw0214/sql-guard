@@ -52,3 +52,14 @@ class MRReviewRequest(BaseModel):
     suppressions: List[RuleSuppression] = Field(default_factory=list)
     baseline_issues: List[Dict] = Field(default_factory=list)
     ci_gate: Optional[CIGate] = None
+
+
+class RuntimeAIConfigRequest(BaseModel):
+    provider: Optional[Literal["openai", "ollama"]] = None
+    ai_base_url: Optional[str] = None
+    ai_model: Optional[str] = None
+    ai_api_key: Optional[str] = None
+    ai_http_timeout: Optional[str] = None
+    ollama_base_url: Optional[str] = None
+    ollama_model: Optional[str] = None
+    ollama_http_timeout: Optional[str] = None

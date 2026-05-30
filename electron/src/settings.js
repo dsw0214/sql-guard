@@ -1,4 +1,4 @@
-import { SETTINGS_KEY } from "./constants.js";
+import { SETTINGS_KEY, getClientId } from "./constants.js";
 import { normalizeThemeColor, normalizeThemeMode } from "./theme.js";
 
 export function getPersistedSettings() {
@@ -23,6 +23,15 @@ export function saveSettings(refs) {
         themeColor: refs.themeColor.value,
         serverUrl: refs.serverUrl.value.trim(),
         apiToken: refs.apiToken.value.trim(),
+        clientId: getClientId(),
+        aiProvider: refs.aiProvider.value,
+        aiBaseUrl: refs.aiBaseUrl.value.trim(),
+        aiModel: refs.aiModel.value.trim(),
+        aiApiKey: refs.aiApiKey.value,
+        aiHttpTimeout: String(refs.aiHttpTimeout.value || "").trim(),
+        ollamaBaseUrl: refs.ollamaBaseUrl.value.trim(),
+        ollamaModel: refs.ollamaModel.value.trim(),
+        ollamaHttpTimeout: String(refs.ollamaHttpTimeout.value || "").trim(),
         previewScrollMode: refs.previewScrollMode.value,
         mode: refs.mode.value,
         dialect: refs.dialect.value || "generic",
@@ -60,6 +69,31 @@ export function applyPersistedSettings(refs) {
         refs.apiToken.value = settings.apiToken.trim();
     }
 
+    if (settings.aiProvider === "openai" || settings.aiProvider === "ollama") {
+        refs.aiProvider.value = settings.aiProvider;
+    }
+    if (typeof settings.aiBaseUrl === "string") {
+        refs.aiBaseUrl.value = settings.aiBaseUrl.trim();
+    }
+    if (typeof settings.aiModel === "string") {
+        refs.aiModel.value = settings.aiModel.trim();
+    }
+    if (typeof settings.aiApiKey === "string") {
+        refs.aiApiKey.value = settings.aiApiKey;
+    }
+    if (typeof settings.aiHttpTimeout === "string" || typeof settings.aiHttpTimeout === "number") {
+        refs.aiHttpTimeout.value = String(settings.aiHttpTimeout).trim();
+    }
+    if (typeof settings.ollamaBaseUrl === "string") {
+        refs.ollamaBaseUrl.value = settings.ollamaBaseUrl.trim();
+    }
+    if (typeof settings.ollamaModel === "string") {
+        refs.ollamaModel.value = settings.ollamaModel.trim();
+    }
+    if (typeof settings.ollamaHttpTimeout === "string" || typeof settings.ollamaHttpTimeout === "number") {
+        refs.ollamaHttpTimeout.value = String(settings.ollamaHttpTimeout).trim();
+    }
+
     if (settings.previewScrollMode === "smooth" || settings.previewScrollMode === "instant") {
         refs.previewScrollMode.value = settings.previewScrollMode;
     }
@@ -81,6 +115,15 @@ export function applyDefaultSettings(refs) {
     refs.themeColor.value = "#43e7ff";
     refs.serverUrl.value = "";
     refs.apiToken.value = "";
+    getClientId();
+    refs.aiProvider.value = "ollama";
+    refs.aiBaseUrl.value = "https://api.openai.com/v1";
+    refs.aiModel.value = "gpt-4o-mini";
+    refs.aiApiKey.value = "";
+    refs.aiHttpTimeout.value = "30000";
+    refs.ollamaBaseUrl.value = "http://cn212001352.bilibili.local:11434";
+    refs.ollamaModel.value = "qwen3.5:9b";
+    refs.ollamaHttpTimeout.value = "30000";
     refs.previewScrollMode.value = "smooth";
     refs.mode.value = "hybrid";
     refs.dialect.value = "generic";

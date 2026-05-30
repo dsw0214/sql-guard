@@ -4,3 +4,4 @@ pydantic
 httpx
 sqlglot
 python-multipart
+dotenv

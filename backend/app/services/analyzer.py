@@ -1,8 +1,12 @@
-from typing import Dict, List, Optional
+import hashlib
+import re
+from typing import Dict, List, Optional, Tuple
 
 from app.config import AppConfig
+from sqlglot import exp
 from .ai_client import analyze_sql_with_ai
 from .rule_engine import analyze_statement
+from .sql_parser import parse_stmt
 from .sql_parser import split_sql_statements_with_meta
 
 
@@ -193,6 +197,325 @@ def _evaluate_ci_gate(
     }
 
 
+# Matches: CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <name>  (unquoted or backtick-quoted)
+_CREATE_TABLE_RE = re.compile(
+    r"^\s*create\s+(?:temporary\s+)?table\s+(?:if\s+not\s+exists\s+)?"
+    r"(?:`[^`]+`|\w+(?:\.\w+)*)\s+",
+    re.IGNORECASE,
+)
+
+
+def _canonical_stmt_key(stmt: str, dialect: Optional[str]) -> str:
+    """Return a structural fingerprint for *stmt*.
+
+    For CREATE TABLE statements the table / schema identifier is replaced with
+    a placeholder using a fast regex (no AST parse), so sharded tables that
+    share the same column definitions map to the same key.
+    For all other statement types the normalised full text is hashed.
+    """
+    m = _CREATE_TABLE_RE.match(stmt)
+    if m:
+        # Replace everything up to and including the table name with a
+        # normalised prefix so the key depends only on the column definitions.
+        body = stmt[m.end():]  # column list + options
+        canonical = "CREATE TABLE __T__ " + body
+        normalized = re.sub(r"\s+", " ", canonical.lower()).strip()
+        return "c:" + hashlib.sha256(normalized.encode()).hexdigest()
+
+    expr = parse_stmt(stmt, dialect)
+    if expr is not None:
+        canonical_expr = expr.copy()
+
+        # Normalize identifiers and literals so statements with identical
+        # structure but different names/values land in the same group.
+        for table in canonical_expr.find_all(exp.Table):
+            if table.args.get("this") is not None:
+                table.set("this", exp.to_identifier("__TABLE__"))
+            if table.args.get("db") is not None:
+                table.set("db", exp.to_identifier("__DB__"))
+            if table.args.get("catalog") is not None:
+                table.set("catalog", exp.to_identifier("__CATALOG__"))
+
+        for column in canonical_expr.find_all(exp.Column):
+            if column.args.get("this") is not None:
+                column.set("this", exp.to_identifier("__COL__"))
+            if column.args.get("table") is not None:
+                column.set("table", exp.to_identifier("__TABLE_ALIAS__"))
+
+        for lit in canonical_expr.find_all(exp.Literal):
+            lit.set("this", "__LIT__")
+
+        normalized = re.sub(r"\s+", " ", canonical_expr.sql().lower()).strip()
+        return "a:" + hashlib.sha256(normalized.encode()).hexdigest()
+
+    normalized = re.sub(r"\s+", " ", stmt.lower()).strip()
+    return "s:" + hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def _format_structure_group_id(key: str) -> str:
+    digest = key.split(":", 1)[-1]
+    return f"SG-{digest[:10].upper()}"
+
+
+def _split_top_level_csv(text: str) -> List[str]:
+    items: List[str] = []
+    depth = 0
+    start = 0
+    for idx, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            items.append(text[start:idx].strip())
+            start = idx + 1
+    tail = text[start:].strip()
+    if tail:
+        items.append(tail)
+    return items
+
+
+def _extract_create_table_outline(stmt: str) -> Optional[str]:
+    m = _CREATE_TABLE_RE.match(stmt)
+    if not m:
+        return None
+
+    body = stmt[m.end():]
+    start = body.find("(")
+    if start < 0:
+        return None
+
+    depth = 0
+    end = -1
+    for idx in range(start, len(body)):
+        ch = body[idx]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+    if end < 0:
+        return None
+
+    columns_blob = body[start + 1:end]
+    items = _split_top_level_csv(columns_blob)
+
+    outlines: List[str] = []
+    for item in items:
+        token = item.strip()
+        if not token:
+            continue
+        if re.match(r"^(primary\s+key|unique\b|key\b|constraint\b|index\b|foreign\s+key|check\b)", token, re.IGNORECASE):
+            continue
+        parts = re.split(r"\s+", token, maxsplit=2)
+        if len(parts) < 2:
+            continue
+        col = parts[0].strip("`\"")
+        dtype = parts[1]
+        not_null = " NOT NULL" if re.search(r"\bnot\s+null\b", token, re.IGNORECASE) else ""
+        outlines.append(f"{col} {dtype}{not_null}")
+
+    if not outlines:
+        return None
+
+    limit = 8
+    head = outlines[:limit]
+    suffix = f" (+{len(outlines) - limit} cols)" if len(outlines) > limit else ""
+    return " | ".join(head) + suffix
+
+
+def _structure_outline(stmt: str) -> str:
+    create_outline = _extract_create_table_outline(stmt)
+    if create_outline:
+        return create_outline
+
+    compact = re.sub(r"\s+", " ", stmt).strip()
+    return compact[:220] + ("..." if len(compact) > 220 else "")
+
+
+def _build_grouped_issues(issues: List[Dict], structure_group_map: Optional[Dict[str, Dict]] = None) -> List[Dict]:
+    grouped: Dict[Tuple[str, str, str, str, str], Dict] = {}
+    for item in issues:
+        group_id = str(item.get("structure_group") or "SG-UNGROUPED")
+        source = str(item.get("source") or "unknown")
+        level = str(item.get("level") or "P3")
+        rule_id = str(item.get("rule_id") or "RG-UNKNOWN")
+        message = str(item.get("message") or "")
+        key = (group_id, source, level, rule_id, message)
+
+        row = grouped.get(key)
+        if not row:
+            row = {
+                "structure_group": group_id,
+                "source": source,
+                "level": level,
+                "rule_id": rule_id,
+                "message": message,
+                "occurrence_count": 0,
+                "statement_indices": [],
+                "line_ranges": [],
+                "table_names": set(),
+                "sample_sql_fragment": item.get("sql_fragment"),
+                "hint": item.get("hint"),
+                "ddl_references": {},
+                "structure_outline": item.get("structure_outline"),
+            }
+            grouped[key] = row
+
+        row["occurrence_count"] += 1
+        stmt_idx = item.get("statement_index")
+        if isinstance(stmt_idx, int):
+            row["statement_indices"].append(stmt_idx)
+        line_start = item.get("line_start")
+        line_end = item.get("line_end")
+        if isinstance(line_start, int) and isinstance(line_end, int):
+            row["line_ranges"].append([line_start, line_end])
+        for t in item.get("table_names", []) or []:
+            if t:
+                row["table_names"].add(str(t))
+
+        ddl_ref = item.get("ddl_reference")
+        if isinstance(ddl_ref, dict):
+            ddl_key = (
+                ddl_ref.get("statement_index"),
+                ddl_ref.get("line_start"),
+                ddl_ref.get("line_end"),
+                ddl_ref.get("ddl_type"),
+                ddl_ref.get("sql_fragment"),
+            )
+            if ddl_key not in row["ddl_references"]:
+                row["ddl_references"][ddl_key] = {
+                    "statement_index": ddl_ref.get("statement_index"),
+                    "line_start": ddl_ref.get("line_start"),
+                    "line_end": ddl_ref.get("line_end"),
+                    "ddl_type": ddl_ref.get("ddl_type"),
+                    "sql_fragment": ddl_ref.get("sql_fragment"),
+                }
+
+    result: List[Dict] = []
+    for row in grouped.values():
+        group_meta = (structure_group_map or {}).get(str(row["structure_group"]), {})
+        structure_outline = row.get("structure_outline") or group_meta.get("structure_outline")
+        sample_sql_fragment = row.get("sample_sql_fragment") or group_meta.get("sample_sql_fragment")
+        result.append(
+            {
+                "structure_group": row["structure_group"],
+                "source": row["source"],
+                "level": row["level"],
+                "rule_id": row["rule_id"],
+                "message": row["message"],
+                "occurrence_count": row["occurrence_count"],
+                "statement_indices": sorted(row["statement_indices"]),
+                "line_ranges": row["line_ranges"],
+                "table_names": sorted(row["table_names"]),
+                "sample_sql_fragment": sample_sql_fragment,
+                "structure_outline": structure_outline,
+                "hint": row["hint"],
+                "ddl_references": list(row["ddl_references"].values()),
+            }
+        )
+
+    level_priority = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    result.sort(
+        key=lambda x: (
+            level_priority.get(str(x.get("level", "P3")), 3),
+            -int(x.get("occurrence_count", 0)),
+            str(x.get("structure_group", "")),
+        )
+    )
+    return result
+
+
+def _ddl_type(expr: Optional[exp.Expression], stmt: str) -> Optional[str]:
+    lower = stmt.lower()
+
+    if expr is not None:
+        if isinstance(expr, exp.Create):
+            return "CREATE"
+        if isinstance(expr, exp.Alter):
+            return "ALTER"
+        if isinstance(expr, exp.Drop):
+            return "DROP"
+
+        truncate_cls = getattr(exp, "TruncateTable", None)
+        if truncate_cls is not None and isinstance(expr, truncate_cls):
+            return "TRUNCATE"
+
+        rename_table_cls = getattr(exp, "RenameTable", None)
+        if rename_table_cls is not None and isinstance(expr, rename_table_cls):
+            return "RENAME"
+
+        # Some sqlglot versions expose RENAME as exp.Rename rather than
+        # exp.RenameTable.
+        rename_cls = getattr(exp, "Rename", None)
+        if rename_cls is not None and isinstance(expr, rename_cls):
+            return "RENAME"
+
+    if re.search(r"\bcreate\b", lower):
+        return "CREATE"
+    if re.search(r"\balter\b", lower):
+        return "ALTER"
+    if re.search(r"\bdrop\b", lower):
+        return "DROP"
+    if re.search(r"\btruncate\b", lower):
+        return "TRUNCATE"
+    if re.search(r"\brename\b", lower):
+        return "RENAME"
+    return None
+
+
+def _build_ddl_references(statement_meta: List[Dict], dialect: Optional[str], issues: List[Dict]) -> List[Dict]:
+    issue_by_stmt: Dict[int, List[Dict]] = {}
+    for issue in issues:
+        stmt_idx = issue.get("statement_index")
+        if isinstance(stmt_idx, int):
+            issue_by_stmt.setdefault(stmt_idx, []).append(issue)
+
+    ddl_refs: List[Dict] = []
+    for item in statement_meta:
+        stmt = str(item.get("statement") or "").strip()
+        if not stmt:
+            continue
+        expr = parse_stmt(stmt, dialect)
+        ddl_kind = _ddl_type(expr, stmt)
+        if not ddl_kind:
+            continue
+
+        stmt_idx = item.get("statement_index")
+        related_issues = issue_by_stmt.get(stmt_idx, []) if isinstance(stmt_idx, int) else []
+
+        rule_ids = sorted({str(i.get("rule_id")) for i in related_issues if i.get("rule_id")})
+        levels = sorted({str(i.get("level")) for i in related_issues if i.get("level")})
+        row = {
+            "statement_index": stmt_idx,
+            "line_start": item.get("line_start"),
+            "line_end": item.get("line_end"),
+            "ddl_type": ddl_kind,
+            "sql_fragment": stmt[:400],
+            "structure_outline": _structure_outline(stmt),
+            "structure_group": _format_structure_group_id(_canonical_stmt_key(stmt, dialect)),
+            "issue_count": len(related_issues),
+            "rule_ids": rule_ids,
+            "levels": levels,
+        }
+        ddl_refs.append(row)
+
+        for issue in related_issues:
+            issue["ddl_reference"] = {
+                "statement_index": row["statement_index"],
+                "line_start": row["line_start"],
+                "line_end": row["line_end"],
+                "ddl_type": row["ddl_type"],
+                "sql_fragment": row["sql_fragment"],
+                "structure_outline": row["structure_outline"],
+            }
+
+    ddl_refs.sort(key=lambda x: (int(x.get("statement_index") or 0), str(x.get("ddl_type") or "")))
+    return ddl_refs
+
+
 def dedupe_issues(issues: List[Dict], max_issues: int) -> List[Dict]:
     seen = set()
     merged: List[Dict] = []
@@ -225,18 +548,106 @@ async def analyze_sql(
     statement_meta = split_sql_statements_with_meta(sql, dialect)
     rule_issues: List[Dict] = []
     tables: List[str] = []
+    structure_groups: List[Dict] = []
+    all_structure_groups: List[Dict] = []
 
     if mode in {"rule", "hybrid"}:
+        # Per-call cache keyed by structural fingerprint.
+        # Identical structures (e.g. sharded tables) are analysed once; the
+        # cached issue templates are re-stamped with the actual statement
+        # index and line numbers for each duplicate.
+        _rule_cache: Dict[str, Tuple[List[Dict], List[str]]] = {}
+        _group_meta: Dict[str, Dict] = {}
         for item in statement_meta:
-            stmt_issues, stmt_tables = analyze_statement(
-                item["statement"],
-                dialect,
-                statement_index=item.get("statement_index"),
-                line_start=item.get("line_start"),
-                line_end=item.get("line_end"),
-            )
+            stmt = item["statement"]
+            stmt_idx = item.get("statement_index")
+            line_s = item.get("line_start")
+            line_e = item.get("line_end")
+
+            key = _canonical_stmt_key(stmt, dialect)
+            group_id = _format_structure_group_id(key)
+
+            row = _group_meta.get(key)
+            if not row:
+                row = {
+                    "group_id": group_id,
+                    "statement_indices": [],
+                    "line_ranges": [],
+                    "sample_sql_fragment": stmt[:400],
+                    "structure_outline": _structure_outline(stmt),
+                    "sample_tables": [],
+                    "rule_issue_count": 0,
+                    "unique_rule_ids": set(),
+                }
+                _group_meta[key] = row
+            row["statement_indices"].append(stmt_idx)
+            row["line_ranges"].append([line_s, line_e])
+
+            if key in _rule_cache:
+                cached_tmpls, stmt_tables = _rule_cache[key]
+                stmt_issues = [
+                    {
+                        **tmpl,
+                        "statement_index": stmt_idx,
+                        "line_start": line_s,
+                        "line_end": line_e,
+                        "sql_fragment": stmt[:400],
+                        "structure_outline": row["structure_outline"],
+                        "structure_group": group_id,
+                        "table_names": sorted(set(stmt_tables)),
+                    }
+                    for tmpl in cached_tmpls
+                ]
+            else:
+                stmt_issues, stmt_tables = analyze_statement(
+                    stmt,
+                    dialect,
+                    statement_index=stmt_idx,
+                    line_start=line_s,
+                    line_end=line_e,
+                )
+                # Store template without position fields so they can be
+                # overridden for each duplicate statement.
+                _rule_cache[key] = (
+                    [
+                        {k: v for k, v in issue.items() if k not in ("statement_index", "line_start", "line_end", "sql_fragment")}
+                        for issue in stmt_issues
+                    ],
+                    stmt_tables,
+                )
+
+                for issue in stmt_issues:
+                    issue["structure_group"] = group_id
+                    issue["table_names"] = sorted(set(stmt_tables))
+                    issue["structure_outline"] = row["structure_outline"]
+
+            row["sample_tables"] = sorted(set((row.get("sample_tables") or []) + stmt_tables))[:5]
+            row["rule_issue_count"] += len(stmt_issues)
+            for issue in stmt_issues:
+                rid = issue.get("rule_id")
+                if rid:
+                    row["unique_rule_ids"].add(rid)
+
             rule_issues.extend(stmt_issues)
             tables.extend(stmt_tables)
+
+        for row in _group_meta.values():
+            all_structure_groups.append(
+                {
+                    "group_id": row["group_id"],
+                    "occurrence_count": len(row["statement_indices"]),
+                    "statement_indices": row["statement_indices"],
+                    "line_ranges": row["line_ranges"],
+                    "sample_sql_fragment": row["sample_sql_fragment"],
+                    "structure_outline": row["structure_outline"],
+                    "sample_tables": row["sample_tables"],
+                    "rule_issue_count": row["rule_issue_count"],
+                    "unique_rule_ids": sorted(row["unique_rule_ids"]),
+                }
+            )
+
+        all_structure_groups.sort(key=lambda x: (-x["occurrence_count"], x["group_id"]))
+        structure_groups = [item for item in all_structure_groups if int(item.get("occurrence_count", 0)) > 1]
 
     ai_issues: List[Dict] = []
     ai_error: Optional[str] = None
@@ -248,6 +659,9 @@ async def analyze_sql(
     effective_policy = _normalize_policy(policy)
     effective_suppressions = _normalize_suppressions(suppressions)
     policy_issues = _apply_policy(merged_issues, effective_policy, effective_suppressions)
+    ddl_references = _build_ddl_references(statement_meta, dialect, policy_issues)
+    structure_group_map = {str(item.get("group_id")): item for item in all_structure_groups}
+    grouped_issues = _build_grouped_issues(policy_issues, structure_group_map=structure_group_map)
     issues = dedupe_issues(policy_issues, max_issues=max_issues)
     unique_rule_count = len({i.get("rule_id") for i in issues if i.get("rule_id")})
 
@@ -271,8 +685,15 @@ async def analyze_sql(
             "rule_issue_count": len(rule_issues),
             "ai_issue_count": len(ai_issues),
             "total_issue_count": len(issues),
+            "grouped_issue_count": len(grouped_issues),
             "unique_rule_count": unique_rule_count,
+            "structure_group_total_count": len(all_structure_groups),
+            "structure_group_count": len(structure_groups),
+            "ddl_reference_count": len(ddl_references),
         },
+        "structure_groups": structure_groups,
+        "grouped_issues": grouped_issues,
+        "ddl_references": ddl_references,
         "tables": sorted(set(tables)),
         "policy": {
             "enabled_rules": sorted(effective_policy.get("enabled_rules", set())),

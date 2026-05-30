@@ -1,11 +1,16 @@
-import { getApiBase, getApiToken } from "./constants.js";
+import { getApiBase, getApiToken, getClientId } from "./constants.js";
 
 function buildAuthHeaders() {
     const token = getApiToken();
+    const clientId = getClientId();
+    const headers = {
+        "X-Client-Id": clientId,
+    };
     if (!token) {
-        return {};
+        return headers;
     }
     return {
+        ...headers,
         Authorization: `Bearer ${token}`,
     };
 }
@@ -85,4 +90,24 @@ export async function checkBackendStatus() {
             message: err && err.message ? err.message : "backend unavailable",
         };
     }
+}
+
+export async function fetchAiConfig() {
+    return requestWithTimeout(`${getApiBase()}/config/ai`, {
+        method: "GET",
+        headers: {
+            ...buildAuthHeaders(),
+        },
+    }, 6000);
+}
+
+export async function updateAiConfig(payload) {
+    return requestWithTimeout(`${getApiBase()}/config/ai`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...buildAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+    }, 10000);
 }

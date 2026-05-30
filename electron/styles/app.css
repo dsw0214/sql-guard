@@ -188,12 +188,90 @@ button:disabled {
 
 .action-row {
     margin-top: 12px;
-    padding: 12px;
+    padding: 14px;
     display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: rise-in 780ms cubic-bezier(.2,.85,.25,1) both;
+}
+
+.settings-group {
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+    border-radius: 12px;
+    background: rgba(4, 16, 24, 0.58);
+    padding: 10px;
+}
+
+.settings-group-title {
+    margin: 0 0 8px;
+    font-family: "Orbitron", "Rajdhani", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #d7f7ff;
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 10px;
+    align-items: end;
+}
+
+.settings-grid > label,
+.settings-grid > div {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+}
+
+.settings-grid label {
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--text-dim);
+}
+
+.settings-grid label input,
+.settings-grid label select {
+    width: 100%;
+}
+
+.settings-check {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-grid .setting-wide {
+    grid-column: span 2;
+}
+
+.settings-button-row {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
     flex-wrap: wrap;
     align-items: center;
-    animation: rise-in 780ms cubic-bezier(.2,.85,.25,1) both;
+}
+
+.settings-button-row > button {
+    margin-top: 0;
+}
+
+.setting-status {
+    margin-top: 8px;
+    display: block;
+}
+
+.action-row .meta {
+    margin-top: 0;
+}
+
+.action-row .setting-status {
+    grid-column: auto;
 }
 
 .meta {
@@ -605,6 +683,14 @@ button:disabled {
     .controls,
     .upload-row {
         gap: 8px;
+    }
+
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-grid .setting-wide {
+        grid-column: auto;
     }
 
 }

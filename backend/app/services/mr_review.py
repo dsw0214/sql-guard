@@ -97,6 +97,9 @@ async def review_merge_request(
                 "sql": sql,
                 "score": result["score"],
                 "issues": result["issues"],
+                "grouped_issues": result.get("grouped_issues", []),
+                "structure_groups": result.get("structure_groups", []),
+                "ddl_references": result.get("ddl_references", []),
                 "stats": result["stats"],
                 "ci_gate": result.get("ci_gate", {"enabled": False, "passed": True, "blocked_reasons": []}),
             }

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
 from app.config import AppConfig
-from app.schemas import ExplainRequest, MRReviewRequest, SQLRequest
+from app.schemas import ExplainRequest, MRReviewRequest, RuntimeAIConfigRequest, SQLRequest
 from app.services.analyzer import analyze_sql
 from app.services.explainer import explain_sql
 from app.services.file_review import review_sql_attachment
@@ -40,18 +40,23 @@ async def review(
     req: SQLRequest,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
 ):
     _require_api_auth(authorization=authorization, x_api_key=x_api_key)
-    return await analyze_sql(
-        req.sql,
-        req.mode,
-        req.dialect,
-        req.max_issues,
-        policy=req.policy.model_dump() if req.policy else None,
-        suppressions=[item.model_dump() for item in req.suppressions],
-        baseline_issues=req.baseline_issues,
-        ci_gate=req.ci_gate.model_dump() if req.ci_gate else None,
-    )
+    tokens = AppConfig.bind_request_client(x_client_id)
+    try:
+        return await analyze_sql(
+            req.sql,
+            req.mode,
+            req.dialect,
+            req.max_issues,
+            policy=req.policy.model_dump() if req.policy else None,
+            suppressions=[item.model_dump() for item in req.suppressions],
+            baseline_issues=req.baseline_issues,
+            ci_gate=req.ci_gate.model_dump() if req.ci_gate else None,
+        )
+    finally:
+        AppConfig.reset_request_client(tokens)
 
 
 @router.post("/review/upload")
@@ -67,6 +72,7 @@ async def review_upload(
     gate_only_new_issues: bool = Form(False),
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
 ):
     _require_api_auth(authorization=authorization, x_api_key=x_api_key)
     if mode not in {"rule", "ai", "hybrid"}:
@@ -85,13 +91,17 @@ async def review_upload(
     if ci_gate["max_allowed_severity"] not in {None, "P0", "P1", "P2", "P3"}:
         raise HTTPException(status_code=400, detail="gate_max_allowed_severity 仅支持 P0/P1/P2/P3")
 
-    return await review_sql_attachment(
-        file,
-        mode=mode,
-        dialect=dialect,
-        max_issues=max_issues,
-        ci_gate=ci_gate,
-    )
+    tokens = AppConfig.bind_request_client(x_client_id)
+    try:
+        return await review_sql_attachment(
+            file,
+            mode=mode,
+            dialect=dialect,
+            max_issues=max_issues,
+            ci_gate=ci_gate,
+        )
+    finally:
+        AppConfig.reset_request_client(tokens)
 
 
 @router.post("/explain")
@@ -99,9 +109,14 @@ def explain(
     req: ExplainRequest,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
 ):
     _require_api_auth(authorization=authorization, x_api_key=x_api_key)
-    return explain_sql(req.sql, req.dialect)
+    tokens = AppConfig.bind_request_client(x_client_id)
+    try:
+        return explain_sql(req.sql, req.dialect)
+    finally:
+        AppConfig.reset_request_client(tokens)
 
 
 @router.post("/gitlab/mr-review")
@@ -109,29 +124,83 @@ async def gitlab_mr_review(
     req: MRReviewRequest,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
 ):
     _require_api_auth(authorization=authorization, x_api_key=x_api_key)
-    return await review_merge_request(
-        title=req.title,
-        description=req.description,
-        diff=req.diff,
-        mode=req.mode,
-        dialect=req.dialect,
-        max_issues=req.max_issues,
-        max_sql=req.max_sql,
-        policy=req.policy.model_dump() if req.policy else None,
-        suppressions=[item.model_dump() for item in req.suppressions],
-        baseline_issues=req.baseline_issues,
-        ci_gate=req.ci_gate.model_dump() if req.ci_gate else None,
-    )
+    tokens = AppConfig.bind_request_client(x_client_id)
+    try:
+        return await review_merge_request(
+            title=req.title,
+            description=req.description,
+            diff=req.diff,
+            mode=req.mode,
+            dialect=req.dialect,
+            max_issues=req.max_issues,
+            max_sql=req.max_sql,
+            policy=req.policy.model_dump() if req.policy else None,
+            suppressions=[item.model_dump() for item in req.suppressions],
+            baseline_issues=req.baseline_issues,
+            ci_gate=req.ci_gate.model_dump() if req.ci_gate else None,
+        )
+    finally:
+        AppConfig.reset_request_client(tokens)
 
 
 @router.get("/config")
 def config(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
 ):
     if not AppConfig.config_endpoint_enabled():
         raise HTTPException(status_code=404, detail="Not Found")
     _require_api_auth(authorization=authorization, x_api_key=x_api_key)
-    return AppConfig.config_view()
+    tokens = AppConfig.bind_request_client(x_client_id)
+    try:
+        return AppConfig.config_view()
+    finally:
+        AppConfig.reset_request_client(tokens)
+
+
+@router.get("/config/ai")
+def get_runtime_ai_config(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
+):
+    if not AppConfig.config_endpoint_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
+    return AppConfig.runtime_ai_config_view(client_id=x_client_id, mask_secret=True)
+
+
+@router.post("/config/ai")
+def update_runtime_ai_config(
+    req: RuntimeAIConfigRequest,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    x_client_id: str | None = Header(default=None),
+):
+    if not AppConfig.config_endpoint_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+    _require_api_auth(authorization=authorization, x_api_key=x_api_key)
+
+    payload = {}
+    if req.provider is not None:
+        payload["SQLGUARD_AI_PROVIDER"] = req.provider
+    if req.ai_base_url is not None:
+        payload["SQLGUARD_AI_BASE_URL"] = req.ai_base_url
+    if req.ai_model is not None:
+        payload["SQLGUARD_AI_MODEL"] = req.ai_model
+    if req.ai_api_key is not None:
+        payload["SQLGUARD_AI_API_KEY"] = req.ai_api_key
+    if req.ai_http_timeout is not None:
+        payload["SQLGUARD_AI_HTTP_TIMEOUT"] = req.ai_http_timeout
+    if req.ollama_base_url is not None:
+        payload["SQLGUARD_OLLAMA_BASE_URL"] = req.ollama_base_url
+    if req.ollama_model is not None:
+        payload["SQLGUARD_OLLAMA_MODEL"] = req.ollama_model
+    if req.ollama_http_timeout is not None:
+        payload["SQLGUARD_OLLAMA_HTTP_TIMEOUT"] = req.ollama_http_timeout
+
+    return AppConfig.update_runtime_ai_config(payload, client_id=x_client_id)

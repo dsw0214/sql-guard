@@ -43,55 +43,122 @@ SELECT * FROM users;
 <div id="fileMeta" class="meta"></div>
 
 <div class="action-row">
-    <label class="meta">
-        <input id="highRiskOnly" type="checkbox" />
-        仅显示高风险（P0/P1）
-    </label>
-    <label>
-        导出模板
-        <select id="reportTemplate">
-            <option value="detailed">详细版</option>
-            <option value="simple">简版</option>
-        </select>
-    </label>
-    <label>
-        压缩包诊断视图
-        <select id="archiveDiagFilter">
-            <option value="all">全部</option>
-            <option value="duplicates">仅重复内容组</option>
-            <option value="failed">仅失败文件</option>
-            <option value="skipped">仅跳过文件</option>
-            <option value="none">隐藏诊断明细</option>
-        </select>
-    </label>
-    <label>
-        主题
-        <select id="themeMode">
-            <option value="default">默认科技蓝</option>
-            <option value="emerald">青绿矩阵</option>
-            <option value="sunset">霓虹玫红</option>
-            <option value="amber">琥珀警戒</option>
-            <option value="custom">自定义</option>
-        </select>
-    </label>
-    <label>
-        主题颜色
-        <input id="themeColor" type="color" value="#43e7ff" />
-    </label>
-    <label>
-        服务器地址
-        <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" spellcheck="false" />
-    </label>
-    <label>
-        API Token
-        <input id="apiToken" type="password" placeholder="可选：公网部署鉴权 Token" spellcheck="false" />
-    </label>
-    <button id="exportJsonBtn" disabled>预览并导出 JSON</button>
-    <button id="exportMdBtn" disabled>预览并导出 Markdown</button>
-    <button id="exportCurrentFileBtn" disabled>导出当前展开文件子报告</button>
-    <button id="exportCurrentFileJsonBtn" disabled>导出当前展开文件子报告 JSON</button>
-    <button id="resetExportSettingsBtn">仅重置导出设置</button>
-    <button id="resetSettingsBtn">重置设置</button>
+    <section class="settings-group">
+        <h3 class="settings-group-title">显示与报告</h3>
+        <div class="settings-grid">
+            <label class="meta settings-check">
+                <input id="highRiskOnly" type="checkbox" />
+                仅显示高风险（P0/P1）
+            </label>
+            <label>
+                导出模板
+                <select id="reportTemplate">
+                    <option value="detailed">详细版</option>
+                    <option value="simple">简版</option>
+                </select>
+            </label>
+            <label>
+                压缩包诊断视图
+                <select id="archiveDiagFilter">
+                    <option value="all">全部</option>
+                    <option value="duplicates">仅重复内容组</option>
+                    <option value="failed">仅失败文件</option>
+                    <option value="skipped">仅跳过文件</option>
+                    <option value="none">隐藏诊断明细</option>
+                </select>
+            </label>
+            <label>
+                主题
+                <select id="themeMode">
+                    <option value="default">默认科技蓝</option>
+                    <option value="emerald">青绿矩阵</option>
+                    <option value="sunset">霓虹玫红</option>
+                    <option value="amber">琥珀警戒</option>
+                    <option value="custom">自定义</option>
+                </select>
+            </label>
+            <label>
+                主题颜色
+                <input id="themeColor" type="color" value="#43e7ff" />
+            </label>
+        </div>
+    </section>
+
+    <section class="settings-group">
+        <h3 class="settings-group-title">服务连接</h3>
+        <div class="settings-grid">
+            <label class="setting-wide">
+                服务器地址
+                <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" spellcheck="false" />
+            </label>
+            <label class="setting-wide">
+                API Token
+                <input id="apiToken" type="password" placeholder="可选：公网部署鉴权 Token" spellcheck="false" />
+            </label>
+        </div>
+    </section>
+
+    <section class="settings-group">
+        <h3 class="settings-group-title">AI 模型设置</h3>
+        <div class="settings-grid">
+            <label>
+                AI Provider
+                <select id="aiProvider">
+                    <option value="ollama">ollama</option>
+                    <option value="openai">openai</option>
+                </select>
+            </label>
+            <div id="openaiConfigGroup" class="settings-grid-sub" style="display: contents;">
+                <label class="setting-wide">
+                    OpenAI 地址
+                    <input id="aiBaseUrl" type="text" placeholder="https://api.openai.com/v1" spellcheck="false" />
+                </label>
+                <label class="setting-wide">
+                    OpenAI 模型
+                    <input id="aiModel" type="text" placeholder="gpt-4o-mini" spellcheck="false" />
+                </label>
+                <label class="setting-wide">
+                    OpenAI Key
+                    <input id="aiApiKey" type="password" placeholder="OpenAI-compatible API Key" spellcheck="false" />
+                </label>
+                <label>
+                    OpenAI 超时(ms)
+                    <input id="aiHttpTimeout" type="number" min="1000" max="600000" step="1000" value="30000" />
+                </label>
+            </div>
+            <div id="ollamaConfigGroup" class="settings-grid-sub" style="display: contents;">
+                <label class="setting-wide">
+                    Ollama 地址
+                    <input id="ollamaBaseUrl" type="text" placeholder="http://127.0.0.1:11434" spellcheck="false" />
+                </label>
+                <label class="setting-wide">
+                    Ollama 模型
+                    <input id="ollamaModel" type="text" placeholder="qwen3.5:9b" spellcheck="false" />
+                </label>
+                <label>
+                    Ollama 超时(ms)
+                    <input id="ollamaHttpTimeout" type="number" min="1000" max="600000" step="1000" value="30000" />
+                </label>
+            </div>
+        </div>
+        <div class="settings-button-row">
+            <button id="loadAiConfigBtn" type="button">加载模型配置</button>
+            <button id="saveAiConfigBtn" type="button">保存模型配置</button>
+        </div>
+        <span id="aiConfigStatus" class="meta setting-status"></span>
+    </section>
+
+    <section class="settings-group">
+        <h3 class="settings-group-title">导出与重置</h3>
+        <div class="settings-button-row">
+            <button id="exportJsonBtn" disabled>预览并导出 JSON</button>
+            <button id="exportMdBtn" disabled>预览并导出 Markdown</button>
+            <button id="exportCurrentFileBtn" disabled>导出当前展开文件子报告</button>
+            <button id="exportCurrentFileJsonBtn" disabled>导出当前展开文件子报告 JSON</button>
+            <button id="resetExportSettingsBtn">仅重置导出设置</button>
+            <button id="resetSettingsBtn">重置设置</button>
+        </div>
+    </section>
 </div>
 
 <div id="loading"><span class="spinner"></span>正在检测 SQL，请稍候...</div>

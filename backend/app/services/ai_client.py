@@ -5,8 +5,77 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 
 from app.config import AppConfig
+from .sql_parser import split_sql_statements
 
 ALLOWED_LEVELS = {"P0", "P1", "P2", "P3"}
+_CREATE_TABLE_PREFIX_RE = re.compile(
+    r"^\s*create\s+(?:temporary\s+)?table\s+(?:if\s+not\s+exists\s+)?(?:`[^`]+`|\w+(?:\.\w+)*)\s+",
+    re.IGNORECASE,
+)
+
+
+def _normalize_sql_for_hash(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql).strip().lower()
+
+
+def _prepare_sql_for_ai(sql: str, dialect: Optional[str]) -> Tuple[str, Dict[str, int]]:
+    """Prepare SQL payload for AI by deduping repeated CREATE TABLE structures.
+
+    This is intentionally lightweight to reduce prompt size and generation time
+    on sharded DDL files where only table names differ.
+    """
+    meta = {
+        "original_char_count": len(sql),
+        "prepared_char_count": len(sql),
+        "total_statement_count": 0,
+        "retained_statement_count": 0,
+        "deduped_create_statement_count": 0,
+        "truncated": 0,
+    }
+
+    statements = split_sql_statements(sql, dialect)
+    if not statements:
+        max_chars = AppConfig.ai_max_sql_chars()
+        trimmed = sql if len(sql) <= max_chars else sql[:max_chars]
+        meta["prepared_char_count"] = len(trimmed)
+        meta["truncated"] = 1 if len(sql) > max_chars else 0
+        return trimmed, meta
+
+    meta["total_statement_count"] = len(statements)
+    dedupe_enabled = AppConfig.ai_dedupe_create_structures()
+    retained: List[str] = []
+    create_seen: Dict[str, int] = {}
+
+    for stmt in statements:
+        normalized_stmt = stmt.strip()
+        if not normalized_stmt:
+            continue
+
+        if dedupe_enabled:
+            m = _CREATE_TABLE_PREFIX_RE.match(normalized_stmt)
+            if m:
+                canonical_stmt = "CREATE TABLE __T__ " + normalized_stmt[m.end():]
+                stmt_key = "create:" + _normalize_sql_for_hash(canonical_stmt)
+                create_seen[stmt_key] = create_seen.get(stmt_key, 0) + 1
+                if create_seen[stmt_key] > 1:
+                    continue
+
+        retained.append(normalized_stmt)
+
+    meta["retained_statement_count"] = len(retained)
+    meta["deduped_create_statement_count"] = max(0, len(statements) - len(retained))
+
+    prepared_sql = ";\n".join(retained)
+    if prepared_sql and not prepared_sql.endswith(";"):
+        prepared_sql = prepared_sql + ";"
+
+    max_chars = AppConfig.ai_max_sql_chars()
+    if len(prepared_sql) > max_chars:
+        prepared_sql = prepared_sql[:max_chars]
+        meta["truncated"] = 1
+
+    meta["prepared_char_count"] = len(prepared_sql)
+    return prepared_sql, meta
 
 
 def extract_json_array(text: str) -> List[Dict]:
@@ -207,6 +276,8 @@ async def call_ollama(system_prompt: str, user_prompt: str) -> Tuple[str, Option
 
 
 async def analyze_sql_with_ai(sql: str, dialect: Optional[str], max_issues: int) -> Tuple[List[Dict], Optional[str]]:
+    prepared_sql, compact_meta = _prepare_sql_for_ai(sql, dialect)
+
     system_prompt = (
         "你是资深数据库审核助手。"
         "请分析 SQL 的安全性与性能风险，并仅返回 JSON 数组。"
@@ -217,7 +288,13 @@ async def analyze_sql_with_ai(sql: str, dialect: Optional[str], max_issues: int)
     user_prompt = (
         f"SQL 方言: {dialect or 'generic'}\\n"
         f"最大问题数: {max_issues}\\n"
-        f"SQL:\\n{sql}"
+        f"压缩信息: 原始长度={compact_meta['original_char_count']} 字符, "
+        f"压缩后长度={compact_meta['prepared_char_count']} 字符, "
+        f"总语句数={compact_meta['total_statement_count']}, "
+        f"保留语句数={compact_meta['retained_statement_count']}, "
+        f"去重CREATE数={compact_meta['deduped_create_statement_count']}, "
+        f"是否截断={compact_meta['truncated']}\\n"
+        f"SQL:\\n{prepared_sql}"
     )
 
     body = {
