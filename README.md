@@ -40,6 +40,10 @@
 - 高风险筛选开关（仅显示 P0/P1）
 - 主题选择与自定义主题色（支持预设主题 + 自定义颜色）
 - 服务器地址可在设置面板动态配置，无需重启，留空回退默认 `http://127.0.0.1:8000`
+- SQL 结果支持同结构分组展示（structure group），更容易识别重复风险模式
+- 风险项可关联显示 DDL 引用信息（DDL 类型、结构摘要、SQL 片段）
+- 设置面板支持运行时模型配置加载/保存（Provider / Base URL / Model / Timeout / Key）
+- 多人访问时按客户端隔离运行时模型配置，避免互相覆盖
 
 ## 启动方式
 
@@ -141,7 +145,7 @@ docker run --rm -it \
 	-e SQLGUARD_AI_PROVIDER=ollama \
 	-e SQLGUARD_OLLAMA_BASE_URL=http://host.docker.internal:11434 \
 	-e SQLGUARD_OLLAMA_MODEL=qwen3.5:9b \
-	-e SQLGUARD_OLLAMA_HTTP_TIMEOUT=300 \
+	-e SQLGUARD_OLLAMA_HTTP_TIMEOUT=30000 \
 	-v "$PWD/backend":/app \
 	-w /app \
 	python:3.13-slim \
@@ -167,7 +171,7 @@ cp .env.example .env
 
 2. 按需编辑 `.env`（例如修改 `SQLGUARD_OLLAMA_BASE_URL` 为你的模型服务地址）。
 
-3. 在项目根目录新建 `docker-compose.yml`（已提供可直接使用的版本）：
+3. 直接使用项目根目录已提供的 `docker-compose.yml`：
 
 ```yaml
 services:
@@ -183,14 +187,19 @@ services:
 		environment:
 			SQLGUARD_HOST: ${SQLGUARD_HOST:-0.0.0.0}
 			SQLGUARD_PORT: ${SQLGUARD_PORT:-8000}
-			SQLGUARD_API_TOKEN: ${SQLGUARD_API_TOKEN:-}
 			SQLGUARD_AI_PROVIDER: ${SQLGUARD_AI_PROVIDER:-ollama}
 			SQLGUARD_OLLAMA_BASE_URL: ${SQLGUARD_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
 			SQLGUARD_OLLAMA_MODEL: ${SQLGUARD_OLLAMA_MODEL:-qwen3.5:9b}
-			SQLGUARD_OLLAMA_HTTP_TIMEOUT: ${SQLGUARD_OLLAMA_HTTP_TIMEOUT:-300}
+			SQLGUARD_OLLAMA_HTTP_TIMEOUT: ${SQLGUARD_OLLAMA_HTTP_TIMEOUT:-30000}
 		ports:
 			- "127.0.0.1:${SQLGUARD_PORT:-8000}:8000"
 		restart: unless-stopped
+		healthcheck:
+			test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+			interval: 15s
+			timeout: 5s
+			retries: 3
+			start_period: 30s
 ```
 
 4. 启动服务：
@@ -226,6 +235,12 @@ docker compose down
 	- 使用 Nginx/Caddy 反向代理并启用 HTTPS
 	- 限制 CORS 来源，使用环境变量 `ALLOWED_ORIGINS` 配置
 	- 启用 `SQLGUARD_API_TOKEN` 或在反向代理层增加鉴权
+
+### Docker 环境变量建议
+
+- `SQLGUARD_AI_HTTP_TIMEOUT` 与 `SQLGUARD_OLLAMA_HTTP_TIMEOUT` 建议使用毫秒值（例如 `30000`），系统会兼容秒和毫秒两种输入。
+- 生产环境建议设置 `SQLGUARD_EXPOSE_CONFIG=false`，避免暴露运行时配置写入接口。
+- 若启用 `/config/ai`（`SQLGUARD_EXPOSE_CONFIG=true`），建议前端与调用方传递 `X-Client-Id` 以隔离不同用户配置。
 
 ---
 
@@ -277,7 +292,12 @@ SQLGUARD_API_TOKEN=replace-with-a-long-random-token
 
 都需要发送 `Authorization: Bearer <token>` 或 `X-API-Key: <token>`。
 
-`/config` 默认关闭；只有设置 `SQLGUARD_EXPOSE_CONFIG=true` 才会启用。
+`/config/ai` 默认关闭；只有设置 `SQLGUARD_EXPOSE_CONFIG=true` 才会启用。
+
+说明：
+
+- `/config/ai` 支持 `GET` / `POST`，用于运行时读取和更新模型配置。
+- 可选请求头 `X-Client-Id` 用于隔离不同用户的运行时配置；未传时走默认命名空间。
 
 #### 2. HTTPS 配置（使用 Nginx）
 
@@ -428,9 +448,11 @@ cd electron && npm audit
 	- `dialect`：SQL 方言，如 `mysql` / `postgresql`
 	- `max_issues`：最大返回问题数，默认 20
 - 新增 `/config` 接口，用于查看 AI 配置是否生效
+- 新增 `/config/ai` 接口，用于运行时读取与更新 AI 配置
 - 新增 `/explain` 接口，返回 SQL 语句结构、表名和执行风险洞察
 - 新增 `/gitlab/mr-review` 接口，可直接审核 MR Diff 里的 SQL 变更
 - 基于 `sqlglot` 的 AST 分析替代纯字符串匹配，规则更稳定
+- SQL 风险结果支持同结构分组聚合与 DDL 关联展示
 
 ### AI 配置（OpenAI 兼容接口）
 
@@ -442,7 +464,7 @@ export SQLGUARD_AI_BASE_URL="https://api.openai.com/v1"
 export SQLGUARD_AI_MODEL="gpt-4o-mini"
 export SQLGUARD_AI_TEMPERATURE="0"
 export SQLGUARD_AI_SEED="42"
-export SQLGUARD_AI_HTTP_TIMEOUT="30"
+export SQLGUARD_AI_HTTP_TIMEOUT="30000"
 ```
 
 如果不配置 `SQLGUARD_AI_API_KEY`，系统会自动跳过 AI 分析并返回提示，不影响规则检测。
@@ -455,7 +477,7 @@ export SQLGUARD_OLLAMA_BASE_URL="http://127.0.0.1:11434"
 export SQLGUARD_OLLAMA_MODEL="qwen3.5:9b"
 export SQLGUARD_AI_TEMPERATURE="0"
 export SQLGUARD_AI_SEED="42"
-export SQLGUARD_OLLAMA_HTTP_TIMEOUT="300"
+export SQLGUARD_OLLAMA_HTTP_TIMEOUT="30000"
 ```
 
 ### DeepSeek / Qwen 配置（OpenAI 兼容）
@@ -587,8 +609,37 @@ UI 底栏已新增：
 - 修改后自动保存并刷新后端连通状态，无需重启应用
 - 所有 API 请求通过 `getApiBase()` 动态读取，不再硬编码
 
+## Web 架构（已拆分）
+
+Web 目录采用与 Electron 渲染层近似的模块拆分，便于并行维护：
+
+```text
+web/
+	index.html             # Web 页面入口
+	src/
+		app.js               # 事件绑定与业务编排
+		api.js               # 后端 HTTP 请求
+		ui.js                # 视图渲染与交互
+		reports.js           # 导出与预览内容生成
+		theme.js             # 主题管理
+		constants.js         # 常量与 client_id 管理
+		settings.js          # 本地设置持久化
+	styles/
+		app.css              # 样式与布局
+```
+
+补充说明：
+
+- Web 与 Electron 保持同一套核心交互能力（检测、Explain、MR 审核、导出预览、运行时模型配置）。
+- Web 导出内容会自动清理项目链接文本，避免外链信息落盘。
+
 Electron DevTools 策略：
 
 - 开发环境默认开启 DevTools
 - 生产包（或 `NODE_ENV=production`）默认关闭 DevTools
 - 可通过 `ELECTRON_OPEN_DEVTOOLS=1|0` 强制覆盖
+
+Electron GPU 兼容策略：
+
+- 可通过 `SQLGUARD_DISABLE_HW_ACCELERATION=1|0` 控制是否禁用硬件加速。
+- 在 macOS 上默认禁用硬件加速，以降低 Chromium SharedImage/邮箱类 GPU 日志噪音与兼容问题。
